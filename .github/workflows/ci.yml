@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node-version: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install system dependencies (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y cmake g++ zlib1g-dev libjpeg-turbo8-dev
+
+      - name: Install system dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake jpeg-turbo
+
+      - run: npm ci --ignore-scripts
+      - run: npm run format:check
+      - run: npm run lint:check
+
+      - name: Build QPDF and native addon
+        run: |
+          node scripts/download-qpdf.mjs
+          npx node-gyp rebuild
+          node scripts/bundle-lib.mjs
+
+      - run: npm test

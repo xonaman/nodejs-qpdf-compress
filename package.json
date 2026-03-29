@@ -1,0 +1,89 @@
+{
+  "name": "qpdf-compress",
+  "version": "0.1.0",
+  "description": "Native PDF compression for Node.js, powered by QPDF",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "pdf",
+    "qpdf",
+    "native",
+    "compress",
+    "compression",
+    "optimize",
+    "node-addon",
+    "napi",
+    "pdf-compress",
+    "pdf-optimize",
+    "pdf-repair",
+    "lossless",
+    "lossy"
+  ],
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "lib",
+    "scripts",
+    "binding.gyp"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xonaman/qpdf-compress.git"
+  },
+  "homepage": "https://github.com/xonaman/qpdf-compress#readme",
+  "bugs": {
+    "url": "https://github.com/xonaman/qpdf-compress/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64",
+    "arm",
+    "ppc64"
+  ],
+  "scripts": {
+    "install": "node scripts/install.mjs",
+    "build": "node-gyp rebuild && node scripts/bundle-lib.mjs",
+    "build:ts": "tsc",
+    "prepublishOnly": "tsc",
+    "download": "node scripts/download-qpdf.mjs",
+    "test": "vitest run",
+    "lint": "eslint --fix .",
+    "lint:check": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "dependencies": {
+    "node-addon-api": "^8.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^25.5.0",
+    "eslint": "^10.1.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.5",
+    "node-gyp": "^11.0.0",
+    "prettier": "^3.8.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.57.2",
+    "vitest": "^4.1.2"
+  }
+}

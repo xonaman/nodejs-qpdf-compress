@@ -1,0 +1,148 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node-version: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install system dependencies (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y cmake g++ zlib1g-dev libjpeg-turbo8-dev
+
+      - name: Install system dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake jpeg-turbo
+
+      - run: npm ci --ignore-scripts
+      - run: npm run format:check
+      - run: npm run lint:check
+      - name: Build
+        run: |
+          node scripts/download-qpdf.mjs
+          npx node-gyp rebuild
+          node scripts/bundle-lib.mjs
+      - run: npm test
+
+  prebuild:
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+          - os: macos-latest
+            platform: darwin
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install system dependencies (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y cmake g++ zlib1g-dev libjpeg-turbo8-dev
+
+      - name: Install system dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake jpeg-turbo
+
+      - run: npm ci --ignore-scripts
+      - name: Build
+        run: |
+          node scripts/download-qpdf.mjs
+          npx node-gyp rebuild
+          node scripts/bundle-lib.mjs
+
+      - name: Package prebuild
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TARBALL="qpdf-compress-v${VERSION}-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz"
+          tar -czf "$TARBALL" -C build/Release qpdf_compress.node
+          echo "TARBALL=$TARBALL" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prebuild-${{ matrix.platform }}-${{ matrix.arch }}
+          path: ${{ env.TARBALL }}
+
+  prebuild-linux-arm64:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - name: Build in arm64 container
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v "$PWD:/work" -w /work \
+            node:22-bookworm bash -c "
+              apt-get update && apt-get install -y cmake g++ zlib1g-dev libjpeg-turbo8-dev python3 make &&
+              npm ci --ignore-scripts &&
+              node scripts/download-qpdf.mjs &&
+              npx node-gyp rebuild &&
+              node scripts/bundle-lib.mjs
+            "
+
+      - name: Package prebuild
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TARBALL="qpdf-compress-v${VERSION}-linux-arm64.tar.gz"
+          tar -czf "$TARBALL" -C build/Release qpdf_compress.node
+          echo "TARBALL=$TARBALL" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prebuild-linux-arm64
+          path: ${{ env.TARBALL }}
+
+  release:
+    needs: [prebuild, prebuild-linux-arm64]
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: prebuilds
+          merge-multiple: true
+
+      - name: Publish to npm
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: prebuilds/*
+          generate_release_notes: true
