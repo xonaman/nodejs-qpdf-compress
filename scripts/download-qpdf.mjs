@@ -163,7 +163,7 @@ if (staticLibs.length === 0) {
   }
 }
 
-// step 4: on Windows, copy vcpkg zlib/jpeg static libs for binding.gyp linking
+// step 4: on Windows, copy vcpkg zlib/jpeg static libs and headers for binding.gyp
 if (process.platform === 'win32') {
   const triplet = process.env.VCPKG_TARGET_TRIPLET || `${process.arch}-windows-static`;
   const vcpkgLibDir = join(buildDir, 'vcpkg_installed', triplet, 'lib');
@@ -175,6 +175,11 @@ if (process.platform === 'win32') {
         console.log(`Copied vcpkg ${lib}`);
       }
     }
+  }
+  const vcpkgIncludeDir = join(buildDir, 'vcpkg_installed', triplet, 'include');
+  if (existsSync(vcpkgIncludeDir)) {
+    cpSync(vcpkgIncludeDir, join(depsDir, 'include'), { recursive: true, force: true });
+    console.log('Copied vcpkg headers');
   }
 }
 
