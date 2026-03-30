@@ -19,6 +19,7 @@
       ],
       "cflags": [
         "-Os",
+        "-flto",
         "-ffunction-sections",
         "-fdata-sections"
       ],
@@ -42,8 +43,10 @@
               "CLANG_CXX_LANGUAGE_STANDARD": "c++20",
               "GCC_SYMBOLS_PRIVATE_EXTERN": "YES",
               "DEAD_CODE_STRIPPING": "YES",
+              "LLVM_LTO": "YES",
               "OTHER_CPLUSPLUSFLAGS": [
                 "-Os",
+                "-flto",
                 "-ffunction-sections",
                 "-fdata-sections"
               ],
@@ -53,6 +56,7 @@
                 "-L/usr/local/lib",
                 "-lz",
                 "-ljpeg",
+                "-flto",
                 "-Wl,-dead_strip",
                 "-Wl,-S"
               ]
@@ -66,6 +70,7 @@
               "<(module_root_dir)/deps/qpdf/lib/libqpdf.a",
               "-lz",
               "-ljpeg",
+              "-flto",
               "-Wl,--gc-sections",
               "-Wl,-S",
               "-lpthread",
