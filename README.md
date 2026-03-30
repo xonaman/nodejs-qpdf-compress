@@ -97,7 +97,8 @@ sudo yum install cmake3 gcc-c++ zlib-devel libjpeg-turbo-devel
 | ------------- | --------------- |
 | macOS         | arm64, x64      |
 | Linux (glibc) | x64, arm64, arm |
-| Linux (musl)  | x64, arm64      |
+
+Linux musl (Alpine) is supported via source compilation.
 
 ## 📚 Usage
 

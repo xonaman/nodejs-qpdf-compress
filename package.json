@@ -53,14 +53,12 @@
   },
   "os": [
     "darwin",
-    "linux",
-    "win32"
+    "linux"
   ],
   "cpu": [
     "x64",
     "arm64",
-    "arm",
-    "ppc64"
+    "arm"
   ],
   "scripts": {
     "install": "node scripts/install.mjs",

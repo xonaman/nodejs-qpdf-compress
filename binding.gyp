@@ -72,30 +72,6 @@
               "-ldl"
             ]
           }
-        ],
-        [
-          "OS=='win'",
-          {
-            "defines": [
-              "_HAS_EXCEPTIONS=1"
-            ],
-            "msvs_settings": {
-              "VCCLCompilerTool": {
-                "ExceptionHandling": 1,
-                "Optimization": 1,
-                "WholeProgramOptimization": "true",
-                "AdditionalOptions": [
-                  "/std:c++20"
-                ]
-              },
-              "VCLinkerTool": {
-                "LinkTimeCodeGeneration": 1
-              }
-            },
-            "libraries": [
-              "<(module_root_dir)/deps/qpdf/lib/qpdf.lib"
-            ]
-          }
         ]
       ]
     }
