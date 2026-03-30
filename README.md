@@ -100,9 +100,8 @@ vcpkg install zlib libjpeg-turbo --triplet x64-windows-static
 | ------------- | --------------- |
 | macOS         | arm64, x64      |
 | Linux (glibc) | x64, arm64, arm |
-| Windows       | x64             |
-
-Linux musl (Alpine) is supported via source compilation.
+| Linux (musl)  | x64, arm64      |
+| Windows       | x64, arm64      |
 
 ## 📚 Usage
 

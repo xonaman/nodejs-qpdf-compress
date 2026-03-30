@@ -66,6 +66,9 @@ jobs:
           - os: windows-latest
             platform: win32
             arch: x64
+          - os: windows-latest
+            platform: win32
+            arch: arm64
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -82,7 +85,7 @@ jobs:
 
       - name: Install system dependencies (Windows)
         if: runner.os == 'Windows'
-        run: vcpkg install zlib libjpeg-turbo --triplet x64-windows-static
+        run: vcpkg install zlib libjpeg-turbo --triplet ${{ matrix.arch }}-windows-static
         env:
           VCPKG_ROOT: C:\vcpkg
 
@@ -90,10 +93,11 @@ jobs:
       - name: Build
         run: |
           node scripts/download-qpdf.mjs
-          npx node-gyp rebuild ${{ matrix.arch != 'arm64' && runner.os == 'macOS' && '--arch=x64' || '' }}
+          npx node-gyp rebuild ${{ matrix.arch != 'arm64' && runner.os == 'macOS' && '--arch=x64' || '' }} ${{ matrix.arch == 'arm64' && runner.os == 'Windows' && '--arch=arm64' || '' }}
           node scripts/bundle-lib.mjs
         env:
           VCPKG_ROOT: ${{ runner.os == 'Windows' && 'C:\vcpkg' || '' }}
+          VCPKG_TARGET_TRIPLET: ${{ runner.os == 'Windows' && format('{0}-windows-static', matrix.arch) || '' }}
 
       - name: Package prebuild (Unix)
         if: runner.os != 'Windows'
@@ -159,8 +163,51 @@ jobs:
           name: prebuild-linux-${{ matrix.arch }}
           path: ${{ env.TARBALL }}
 
+  prebuild-linux-musl:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            docker_platform: linux/amd64
+            image: node:22-alpine
+          - arch: arm64
+            docker_platform: linux/arm64
+            image: node:22-alpine
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-qemu-action@v3
+        if: matrix.arch != 'x64'
+        with:
+          platforms: ${{ matrix.arch }}
+      - name: Build in Alpine ${{ matrix.arch }} container
+        run: |
+          docker run --rm --platform ${{ matrix.docker_platform }} \
+            -v "$PWD:/work" -w /work \
+            ${{ matrix.image }} sh -c "
+              apk add --no-cache cmake g++ make zlib-dev libjpeg-turbo-dev python3 linux-headers &&
+              npm ci --ignore-scripts &&
+              node scripts/download-qpdf.mjs &&
+              npx node-gyp rebuild &&
+              node scripts/bundle-lib.mjs
+            "
+
+      - name: Package prebuild
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TARBALL="qpdf-compress-v${VERSION}-linux-musl-${{ matrix.arch }}.tar.gz"
+          tar -czf "$TARBALL" -C build/Release qpdf_compress.node
+          echo "TARBALL=$TARBALL" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: prebuild-linux-musl-${{ matrix.arch }}
+          path: ${{ env.TARBALL }}
+
   release:
-    needs: [prebuild, prebuild-linux-cross]
+    needs: [prebuild, prebuild-linux-cross, prebuild-linux-musl]
     runs-on: ubuntu-latest
     environment: npm
     permissions:

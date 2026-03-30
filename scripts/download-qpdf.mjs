@@ -109,9 +109,10 @@ if (process.platform === 'darwin') {
 if (process.platform === 'win32') {
   const vcpkgRoot = process.env.VCPKG_ROOT || join(process.env.GITHUB_WORKSPACE || '', 'vcpkg');
   if (existsSync(join(vcpkgRoot, 'scripts', 'buildsystems', 'vcpkg.cmake'))) {
+    const triplet = process.env.VCPKG_TARGET_TRIPLET || `${process.arch}-windows-static`;
     cmakeArgs.push(
       `-DCMAKE_TOOLCHAIN_FILE=${join(vcpkgRoot, 'scripts', 'buildsystems', 'vcpkg.cmake')}`,
-      '-DVCPKG_TARGET_TRIPLET=x64-windows-static',
+      `-DVCPKG_TARGET_TRIPLET=${triplet}`,
     );
   }
   // MSVC uses multi-config generator — specify release at build time instead
@@ -164,7 +165,8 @@ if (staticLibs.length === 0) {
 
 // step 4: on Windows, copy vcpkg zlib/jpeg static libs for binding.gyp linking
 if (process.platform === 'win32') {
-  const vcpkgLibDir = join(buildDir, 'vcpkg_installed', 'x64-windows-static', 'lib');
+  const triplet = process.env.VCPKG_TARGET_TRIPLET || `${process.arch}-windows-static`;
+  const vcpkgLibDir = join(buildDir, 'vcpkg_installed', triplet, 'lib');
   if (existsSync(vcpkgLibDir)) {
     for (const lib of ['zlib.lib', 'jpeg.lib', 'turbojpeg.lib']) {
       const src = join(vcpkgLibDir, lib);
