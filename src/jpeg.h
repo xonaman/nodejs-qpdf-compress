@@ -3,6 +3,7 @@
 #include <csetjmp>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <vector>
 
 #include <jpeglib.h>
