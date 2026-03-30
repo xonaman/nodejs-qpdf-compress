@@ -4,7 +4,8 @@
       "target_name": "qpdf_compress",
       "sources": [
         "src/qpdf_addon.cc",
-        "src/stb_impl.cc"
+        "src/jpeg.cc",
+        "src/images.cc"
       ],
       "include_dirs": [
         "<!@(node -p \"require('node-addon-api').include\")",

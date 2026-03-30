@@ -1,400 +1,45 @@
 #include <napi.h>
 
 #include <cerrno>
-#include <csetjmp>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
-#include <limits>
-#include <map>
 #include <memory>
-#include <set>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
-#include <jpeglib.h>
-
-#include <qpdf/Buffer.hh>
 #include <qpdf/Pl_Flate.hh>
 #include <qpdf/QPDF.hh>
-#include <qpdf/QPDFObjectHandle.hh>
-#include <qpdf/QPDFPageDocumentHelper.hh>
 #include <qpdf/QPDFWriter.hh>
 
-#include "stb_image_write.h"
+#include "images.h"
 
 // ---------------------------------------------------------------------------
-// stb_image_write callback — writes JPEG data to a vector
+// File output helper — returns empty string on success, error message on
+// failure
 // ---------------------------------------------------------------------------
 
-static void stbi_write_to_vector(void *context, void *data, int size) {
-  if (!context || !data || size <= 0)
-    return;
-  auto *vec = static_cast<std::vector<uint8_t> *>(context);
-  auto *bytes = static_cast<uint8_t *>(data);
-  vec->insert(vec->end(), bytes, bytes + size);
-}
-
-// ---------------------------------------------------------------------------
-// JPEG error handler — prevents libjpeg from calling exit() on errors
-// ---------------------------------------------------------------------------
-
-struct JpegErrorMgr {
-  struct jpeg_error_mgr pub;
-  std::jmp_buf jmpbuf;
-};
-
-static void jpegErrorExit(j_common_ptr cinfo) {
-  auto *myerr = reinterpret_cast<JpegErrorMgr *>(cinfo->err);
-  std::longjmp(myerr->jmpbuf, 1);
-}
-
-// ---------------------------------------------------------------------------
-// Lossless JPEG optimization — rewrites Huffman tables at the DCT coefficient
-// level without touching pixel data. Typically saves 2–15%.
-// ---------------------------------------------------------------------------
-
-// isolated setjmp scope — no C++ objects with non-trivial destructors
-// may be live when longjmp fires, avoiding undefined behavior
-static bool losslessJpegOptimizeImpl(const unsigned char *data, size_t size,
-                                     unsigned char **outbuf,
-                                     unsigned long *outsize) {
-  struct jpeg_decompress_struct srcinfo = {};
-  struct jpeg_compress_struct dstinfo = {};
-  JpegErrorMgr jerr = {};
-
-  srcinfo.err = jpeg_std_error(&jerr.pub);
-  jerr.pub.error_exit = jpegErrorExit;
-  dstinfo.err = &jerr.pub;
-
-  jpeg_create_decompress(&srcinfo);
-  jpeg_create_compress(&dstinfo);
-
-  if (setjmp(jerr.jmpbuf)) {
-    jpeg_destroy_decompress(&srcinfo);
-    jpeg_destroy_compress(&dstinfo);
-    return false;
-  }
-
-  jpeg_mem_src(&srcinfo, data, static_cast<unsigned long>(size));
-
-  if (jpeg_read_header(&srcinfo, TRUE) != JPEG_HEADER_OK) {
-    jpeg_destroy_decompress(&srcinfo);
-    jpeg_destroy_compress(&dstinfo);
-    return false;
-  }
-
-  // read DCT coefficients — zero quality loss
-  jvirt_barray_ptr *coef_arrays = jpeg_read_coefficients(&srcinfo);
-  if (!coef_arrays) {
-    jpeg_destroy_decompress(&srcinfo);
-    jpeg_destroy_compress(&dstinfo);
-    return false;
-  }
-
-  *outsize = 0;
-  jpeg_mem_dest(&dstinfo, outbuf, outsize);
-
-  jpeg_copy_critical_parameters(&srcinfo, &dstinfo);
-  dstinfo.optimize_coding = TRUE;
-
-  jpeg_write_coefficients(&dstinfo, coef_arrays);
-  jpeg_finish_compress(&dstinfo);
-  jpeg_finish_decompress(&srcinfo);
-
-  jpeg_destroy_compress(&dstinfo);
-  jpeg_destroy_decompress(&srcinfo);
-
-  return *outbuf != nullptr && *outsize > 0;
-}
-
-static bool losslessJpegOptimize(const unsigned char *data, size_t size,
-                                 std::vector<uint8_t> &out) {
-  unsigned char *outbuf = nullptr;
-  unsigned long outsize = 0;
-
-  bool ok = losslessJpegOptimizeImpl(data, size, &outbuf, &outsize);
-  if (ok && outbuf && outsize > 0) {
-    out.assign(outbuf, outbuf + outsize);
-  }
-  free(outbuf);
-  return ok;
-}
-
-// ---------------------------------------------------------------------------
-// Image recompression for lossy mode
-// ---------------------------------------------------------------------------
-
-static void optimizeImages(QPDF &qpdf, int quality) {
-  for (auto &page : QPDFPageDocumentHelper(qpdf).getAllPages()) {
-    auto pageObj = page.getObjectHandle();
-    auto resources = pageObj.getKey("/Resources");
-    if (!resources.isDictionary())
-      continue;
-    auto xobjects = resources.getKey("/XObject");
-    if (!xobjects.isDictionary())
-      continue;
-
-    for (auto &key : xobjects.getKeys()) {
-      auto xobj = xobjects.getKey(key);
-      if (!xobj.isStream())
-        continue;
-
-      auto dict = xobj.getDict();
-      if (!dict.getKey("/Subtype").isName() ||
-          dict.getKey("/Subtype").getName() != "/Image")
-        continue;
-
-      // only handle 8-bit images
-      if (!dict.getKey("/BitsPerComponent").isInteger() ||
-          dict.getKey("/BitsPerComponent").getIntValue() != 8)
-        continue;
-
-      int width = 0, height = 0, components = 0;
-      if (dict.getKey("/Width").isInteger())
-        width = static_cast<int>(dict.getKey("/Width").getIntValue());
-      if (dict.getKey("/Height").isInteger())
-        height = static_cast<int>(dict.getKey("/Height").getIntValue());
-
-      if (width <= 0 || height <= 0 || width > 16384 || height > 16384)
-        continue;
-
-      // determine color components
-      auto cs = dict.getKey("/ColorSpace");
-      if (cs.isName()) {
-        if (cs.getName() == "/DeviceRGB")
-          components = 3;
-        else if (cs.getName() == "/DeviceGray")
-          components = 1;
-        else
-          continue; // skip CMYK, Lab, etc. for now
-      } else {
-        continue; // skip indexed, ICCBased, etc.
-      }
-
-      // skip tiny images (logos, icons) — not worth recompressing
-      if (width * height < 2500)
-        continue;
-
-      // get fully decoded stream data (raw pixels)
-      std::shared_ptr<Buffer> streamData;
-      try {
-        streamData = xobj.getStreamData(qpdf_dl_all);
-      } catch (...) {
-        continue; // can't decode — skip
-      }
-
-      // overflow-safe size calculation
-      auto w = static_cast<size_t>(width);
-      auto h = static_cast<size_t>(height);
-      auto c = static_cast<size_t>(components);
-      if (h > 0 && w > std::numeric_limits<size_t>::max() / h)
-        continue;
-      if (c > 0 && (w * h) > std::numeric_limits<size_t>::max() / c)
-        continue;
-      size_t expectedSize = w * h * c;
-      if (streamData->getSize() != expectedSize)
-        continue;
-
-      // check if recompression would actually help:
-      // skip if already a small JPEG
-      auto currentFilter = dict.getKey("/Filter");
-      bool isCurrentlyJpeg =
-          currentFilter.isName() && currentFilter.getName() == "/DCTDecode";
-
-      // encode as JPEG
-      std::vector<uint8_t> jpegData;
-      jpegData.reserve(expectedSize / 4); // estimate
-      int writeOk =
-          stbi_write_jpg_to_func(stbi_write_to_vector, &jpegData, width, height,
-                                 components, streamData->getBuffer(), quality);
-
-      if (!writeOk || jpegData.empty())
-        continue;
-
-      // only replace if we actually reduced size
-      if (isCurrentlyJpeg) {
-        auto rawData = xobj.getRawStreamData();
-        if (jpegData.size() >= rawData->getSize())
-          continue; // new JPEG is larger, keep original
-      }
-
-      // replace stream data with JPEG
-      std::string jpegStr(reinterpret_cast<char *>(jpegData.data()),
-                          jpegData.size());
-      xobj.replaceStreamData(jpegStr, QPDFObjectHandle::newName("/DCTDecode"),
-                             QPDFObjectHandle::newNull());
-
-      // update dictionary — remove FlateDecode-specific params
-      if (dict.hasKey("/DecodeParms"))
-        dict.removeKey("/DecodeParms");
-      if (dict.hasKey("/Predictor"))
-        dict.removeKey("/Predictor");
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Duplicate image detection — replaces identical image objects with
-// references to a single canonical copy. Dropped duplicates become
-// unreferenced and are omitted from the output.
-// ---------------------------------------------------------------------------
-
-static void deduplicateImages(QPDF &qpdf) {
-  struct ImageEntry {
-    QPDFObjGen og;
-    size_t dataSize;
-    QPDFObjectHandle handle;
+static std::string writeToFile(const std::string &path, const uint8_t *data,
+                               size_t size) {
+  auto closer = [](FILE *fp) {
+    if (fp)
+      fclose(fp);
   };
-
-  std::unordered_map<size_t, std::vector<ImageEntry>> hashGroups;
-  std::set<QPDFObjGen> seen;
-
-  // first pass: collect all image objects and hash their raw data
-  for (auto &page : QPDFPageDocumentHelper(qpdf).getAllPages()) {
-    auto resources = page.getObjectHandle().getKey("/Resources");
-    if (!resources.isDictionary())
-      continue;
-    auto xobjects = resources.getKey("/XObject");
-    if (!xobjects.isDictionary())
-      continue;
-
-    for (auto &key : xobjects.getKeys()) {
-      auto xobj = xobjects.getKey(key);
-      if (!xobj.isStream())
-        continue;
-      auto og = xobj.getObjGen();
-      if (seen.count(og))
-        continue;
-      seen.insert(og);
-
-      auto dict = xobj.getDict();
-      if (!dict.getKey("/Subtype").isName() ||
-          dict.getKey("/Subtype").getName() != "/Image")
-        continue;
-
-      try {
-        auto rawData = xobj.getRawStreamData();
-        size_t size = rawData->getSize();
-
-        // FNV-1a hash
-        size_t hash = 14695981039346656037ULL;
-        auto *p = rawData->getBuffer();
-        for (size_t i = 0; i < size; ++i) {
-          hash ^= static_cast<size_t>(p[i]);
-          hash *= 1099511628211ULL;
-        }
-
-        hashGroups[hash].push_back({og, size, xobj});
-      } catch (...) {
-        continue;
-      }
-    }
+  std::unique_ptr<FILE, decltype(closer)> f(fopen(path.c_str(), "wb"), closer);
+  if (!f) {
+    auto parentDir = std::filesystem::path(path).parent_path();
+    if (!parentDir.empty() && !std::filesystem::is_directory(parentDir))
+      return "Parent directory does not exist: " + parentDir.string();
+    return "Failed to open output file: " + path + " (" + std::strerror(errno) +
+           ")";
   }
-
-  // second pass: verify hash collisions with full byte comparison
-  std::map<QPDFObjGen, QPDFObjectHandle> replacements;
-
-  for (auto &[hash, group] : hashGroups) {
-    if (group.size() < 2)
-      continue;
-
-    for (size_t i = 0; i < group.size(); ++i) {
-      if (replacements.count(group[i].og))
-        continue;
-
-      auto rawI = group[i].handle.getRawStreamData();
-      for (size_t j = i + 1; j < group.size(); ++j) {
-        if (replacements.count(group[j].og))
-          continue;
-
-        auto rawJ = group[j].handle.getRawStreamData();
-        if (rawI->getSize() != rawJ->getSize())
-          continue;
-
-        if (memcmp(rawI->getBuffer(), rawJ->getBuffer(), rawI->getSize()) ==
-            0) {
-          replacements[group[j].og] = group[i].handle;
-        }
-      }
-    }
-  }
-
-  if (replacements.empty())
-    return;
-
-  // third pass: rewrite XObject references to point to canonical objects
-  for (auto &page : QPDFPageDocumentHelper(qpdf).getAllPages()) {
-    auto resources = page.getObjectHandle().getKey("/Resources");
-    if (!resources.isDictionary())
-      continue;
-    auto xobjects = resources.getKey("/XObject");
-    if (!xobjects.isDictionary())
-      continue;
-
-    for (auto &key : xobjects.getKeys()) {
-      auto xobj = xobjects.getKey(key);
-      auto it = replacements.find(xobj.getObjGen());
-      if (it != replacements.end()) {
-        xobjects.replaceKey(key, it->second);
-      }
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Lossless optimization of existing embedded JPEG images — optimizes Huffman
-// tables at the DCT coefficient level without any quality loss.
-// ---------------------------------------------------------------------------
-
-static void optimizeExistingJpegs(QPDF &qpdf) {
-  std::set<QPDFObjGen> processed;
-
-  for (auto &page : QPDFPageDocumentHelper(qpdf).getAllPages()) {
-    auto resources = page.getObjectHandle().getKey("/Resources");
-    if (!resources.isDictionary())
-      continue;
-    auto xobjects = resources.getKey("/XObject");
-    if (!xobjects.isDictionary())
-      continue;
-
-    for (auto &key : xobjects.getKeys()) {
-      auto xobj = xobjects.getKey(key);
-      if (!xobj.isStream())
-        continue;
-
-      auto og = xobj.getObjGen();
-      if (processed.count(og))
-        continue;
-      processed.insert(og);
-
-      auto dict = xobj.getDict();
-      auto filter = dict.getKey("/Filter");
-      if (!filter.isName() || filter.getName() != "/DCTDecode")
-        continue;
-
-      try {
-        auto rawData = xobj.getRawStreamData();
-
-        std::vector<uint8_t> optimized;
-        if (!losslessJpegOptimize(rawData->getBuffer(), rawData->getSize(),
-                                  optimized))
-          continue;
-
-        // only replace if strictly smaller
-        if (optimized.size() >= rawData->getSize())
-          continue;
-
-        std::string jpegStr(reinterpret_cast<char *>(optimized.data()),
-                            optimized.size());
-        xobj.replaceStreamData(jpegStr, QPDFObjectHandle::newName("/DCTDecode"),
-                               QPDFObjectHandle::newNull());
-      } catch (...) {
-        continue;
-      }
-    }
-  }
+  if (fwrite(data, 1, size, f.get()) != size)
+    return "Failed to write output file: " + path + " (" +
+           std::strerror(errno) + ")";
+  if (fflush(f.get()) != 0)
+    return "Failed to flush output file: " + path + " (" +
+           std::strerror(errno) + ")";
+  return {};
 }
 
 // ---------------------------------------------------------------------------
@@ -443,18 +88,11 @@ protected:
             bufferData_.size());
       }
 
-      // deduplicate identical images across pages
       deduplicateImages(qpdf);
-
-      // lossy: recompress embedded images as JPEG
-      if (lossy_) {
+      if (lossy_)
         optimizeImages(qpdf, quality_);
-      }
-
-      // lossless JPEG Huffman table optimization
       optimizeExistingJpegs(qpdf);
 
-      // maximum Flate compression level
       Pl_Flate::setCompressionLevel(9);
 
       QPDFWriter writer(qpdf);
@@ -472,33 +110,10 @@ protected:
       auto buf = writer.getBufferSharedPointer();
       result_.assign(buf->getBuffer(), buf->getBuffer() + buf->getSize());
 
-      // write to file if output path was specified
       if (!outputPath_.empty()) {
-        auto closer = [](FILE *fp) {
-          if (fp)
-            fclose(fp);
-        };
-        std::unique_ptr<FILE, decltype(closer)> f(
-            fopen(outputPath_.c_str(), "wb"), closer);
-        if (!f) {
-          auto parentDir = std::filesystem::path(outputPath_).parent_path();
-          if (!parentDir.empty() && !std::filesystem::is_directory(parentDir)) {
-            SetError("Parent directory does not exist: " + parentDir.string());
-          } else {
-            SetError("Failed to open output file: " + outputPath_ + " (" +
-                     std::strerror(errno) + ")");
-          }
-          return;
-        }
-        size_t written = fwrite(result_.data(), 1, result_.size(), f.get());
-        if (written != result_.size()) {
-          SetError("Failed to write output file: " + outputPath_ + " (" +
-                   std::strerror(errno) + ")");
-          return;
-        }
-        if (fflush(f.get()) != 0) {
-          SetError("Failed to flush output file: " + outputPath_ + " (" +
-                   std::strerror(errno) + ")");
+        auto err = writeToFile(outputPath_, result_.data(), result_.size());
+        if (!err.empty()) {
+          SetError(err);
           return;
         }
         result_.clear();
@@ -510,9 +125,8 @@ protected:
 
   void OnOK() override {
     if (outputPath_.empty()) {
-      auto buffer =
-          Napi::Buffer<uint8_t>::Copy(Env(), result_.data(), result_.size());
-      deferred_.Resolve(buffer);
+      deferred_.Resolve(
+          Napi::Buffer<uint8_t>::Copy(Env(), result_.data(), result_.size()));
     } else {
       deferred_.Resolve(Env().Undefined());
     }
@@ -546,7 +160,6 @@ static Napi::Value Compress(const Napi::CallbackInfo &info) {
     return env.Undefined();
   }
 
-  // parse options
   bool lossy = false;
   int quality = 75;
   std::string outputPath;
@@ -579,16 +192,16 @@ static Napi::Value Compress(const Napi::CallbackInfo &info) {
   if (info[0].IsBuffer()) {
     auto buf = info[0].As<Napi::Buffer<uint8_t>>();
     std::vector<uint8_t> data(buf.Data(), buf.Data() + buf.Length());
-    auto worker = new CompressWorker(env, std::move(data), lossy, quality,
-                                     std::move(outputPath));
+    auto *worker = new CompressWorker(env, std::move(data), lossy, quality,
+                                      std::move(outputPath));
     worker->Queue();
     return worker->Promise();
   }
 
   if (info[0].IsString()) {
     auto path = info[0].As<Napi::String>().Utf8Value();
-    auto worker = new CompressWorker(env, std::move(path), lossy, quality,
-                                     std::move(outputPath));
+    auto *worker = new CompressWorker(env, std::move(path), lossy, quality,
+                                      std::move(outputPath));
     worker->Queue();
     return worker->Promise();
   }
