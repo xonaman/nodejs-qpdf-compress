@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.3] - 2026-03-30
+
+### Fixed
+
+- Included `<cstdio>` before `<jpeglib.h>` for Linux compatibility
+- Restored Node 20 to CI matrix (matching engines `>=20.11.0`)
+- Used static import for `Readable` instead of dynamic `import()`
+
+### Added
+
+- Build provenance attestation for prebuilt binaries via `actions/attest-build-provenance`
+
 ## [0.1.2] - 2026-03-30
 
 ### Fixed
