@@ -44,7 +44,7 @@ const tarName = `qpdf-compress-v${version}-${platformKey}-${arch}.tar.gz`;
 
 // hardcoded origin ensures the URL can never point to an attacker-controlled host
 const releaseOrigin = 'https://github.com';
-const releasePath = `/xonaman/qpdf-compress/releases/download/v${version}/${tarName}`;
+const releasePath = `/xonaman/nodejs-qpdf-compress/releases/download/v${version}/${tarName}`;
 const releaseUrl = new URL(releasePath, releaseOrigin);
 
 const outDir = join(root, 'build', 'Release');

@@ -39,11 +39,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/xonaman/qpdf-compress.git"
+    "url": "git+https://github.com/xonaman/nodejs-qpdf-compress.git"
   },
-  "homepage": "https://github.com/xonaman/qpdf-compress#readme",
+  "homepage": "https://github.com/xonaman/nodejs-qpdf-compress#readme",
   "bugs": {
-    "url": "https://github.com/xonaman/qpdf-compress/issues"
+    "url": "https://github.com/xonaman/nodejs-qpdf-compress/issues"
   },
   "publishConfig": {
     "access": "public"
