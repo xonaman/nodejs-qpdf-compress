@@ -57,9 +57,9 @@ static void jpegErrorExit(j_common_ptr cinfo) {
 
 // isolated setjmp scope — no C++ objects with non-trivial destructors
 // may be live when longjmp fires, avoiding undefined behavior
-static bool losslessJpegOptimizeImpl(
-    const unsigned char *data, size_t size,
-    unsigned char **outbuf, unsigned long *outsize) {
+static bool losslessJpegOptimizeImpl(const unsigned char *data, size_t size,
+                                     unsigned char **outbuf,
+                                     unsigned long *outsize) {
   struct jpeg_decompress_struct srcinfo = {};
   struct jpeg_compress_struct dstinfo = {};
   JpegErrorMgr jerr = {};
