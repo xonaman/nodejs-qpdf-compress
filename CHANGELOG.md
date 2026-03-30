@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.2] - 2026-03-30
+
+### Fixed
+
+- Fixed Linux cross-build tarball structure (prebuilds now install correctly)
+- Fixed Debian Bookworm cross-builds (use `libjpeg62-turbo-dev` package)
+- Moved `setjmp` before `jpeg_create_*` calls to prevent UB on allocation failure
+- Used `uint64_t` for FNV-1a image dedup hash (correct on 32-bit ARM)
+- Added component count validation in `encodeJpeg`
+- Wrapped web `ReadableStream` with `Readable.fromWeb()` in install script
+- Made `strerror` calls thread-safe by copying to `std::string`
+
+### Changed
+
+- Bumped minimum Node.js version to 20.11.0 (`import.meta.dirname` requirement)
+- Updated CI matrix to Node 22 and 24
+
 ## [0.1.1] - 2026-03-30
 
 ### Changed
