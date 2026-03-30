@@ -8,7 +8,6 @@
 #include <limits>
 #include <map>
 #include <memory>
-#include <mutex>
 #include <set>
 #include <string>
 #include <unordered_map>
@@ -24,8 +23,6 @@
 #include <qpdf/QPDFWriter.hh>
 
 #include "stb_image_write.h"
-
-static std::mutex g_qpdf_mutex;
 
 // ---------------------------------------------------------------------------
 // stb_image_write callback — writes JPEG data to a vector
@@ -58,12 +55,14 @@ static void jpegErrorExit(j_common_ptr cinfo) {
 // level without touching pixel data. Typically saves 2–15%.
 // ---------------------------------------------------------------------------
 
-static bool losslessJpegOptimize(const unsigned char *data, size_t size,
-                                 std::vector<uint8_t> &out) {
+// isolated setjmp scope — no C++ objects with non-trivial destructors
+// may be live when longjmp fires, avoiding undefined behavior
+static bool losslessJpegOptimizeImpl(
+    const unsigned char *data, size_t size,
+    unsigned char **outbuf, unsigned long *outsize) {
   struct jpeg_decompress_struct srcinfo = {};
   struct jpeg_compress_struct dstinfo = {};
   JpegErrorMgr jerr = {};
-  unsigned char *outbuf = nullptr;
 
   srcinfo.err = jpeg_std_error(&jerr.pub);
   jerr.pub.error_exit = jpegErrorExit;
@@ -75,7 +74,6 @@ static bool losslessJpegOptimize(const unsigned char *data, size_t size,
   if (setjmp(jerr.jmpbuf)) {
     jpeg_destroy_decompress(&srcinfo);
     jpeg_destroy_compress(&dstinfo);
-    free(outbuf);
     return false;
   }
 
@@ -95,8 +93,8 @@ static bool losslessJpegOptimize(const unsigned char *data, size_t size,
     return false;
   }
 
-  unsigned long outsize = 0;
-  jpeg_mem_dest(&dstinfo, &outbuf, &outsize);
+  *outsize = 0;
+  jpeg_mem_dest(&dstinfo, outbuf, outsize);
 
   jpeg_copy_critical_parameters(&srcinfo, &dstinfo);
   dstinfo.optimize_coding = TRUE;
@@ -105,15 +103,23 @@ static bool losslessJpegOptimize(const unsigned char *data, size_t size,
   jpeg_finish_compress(&dstinfo);
   jpeg_finish_decompress(&srcinfo);
 
-  if (outbuf && outsize > 0) {
-    out.assign(outbuf, outbuf + outsize);
-  }
-
-  free(outbuf);
   jpeg_destroy_compress(&dstinfo);
   jpeg_destroy_decompress(&srcinfo);
 
-  return !out.empty();
+  return *outbuf != nullptr && *outsize > 0;
+}
+
+static bool losslessJpegOptimize(const unsigned char *data, size_t size,
+                                 std::vector<uint8_t> &out) {
+  unsigned char *outbuf = nullptr;
+  unsigned long outsize = 0;
+
+  bool ok = losslessJpegOptimizeImpl(data, size, &outbuf, &outsize);
+  if (ok && outbuf && outsize > 0) {
+    out.assign(outbuf, outbuf + outsize);
+  }
+  free(outbuf);
+  return ok;
 }
 
 // ---------------------------------------------------------------------------
@@ -151,7 +157,7 @@ static void optimizeImages(QPDF &qpdf, int quality) {
       if (dict.getKey("/Height").isInteger())
         height = static_cast<int>(dict.getKey("/Height").getIntValue());
 
-      if (width <= 0 || height <= 0 || width > 65536 || height > 65536)
+      if (width <= 0 || height <= 0 || width > 16384 || height > 16384)
         continue;
 
       // determine color components
@@ -416,8 +422,6 @@ public:
 protected:
   void Execute() override {
     try {
-      std::lock_guard<std::mutex> lock(g_qpdf_mutex);
-
       QPDF qpdf;
       qpdf.setAttemptRecovery(true);
 
@@ -552,6 +556,11 @@ static Napi::Value Compress(const Napi::CallbackInfo &info) {
 
     if (options.Has("mode")) {
       auto mode = options.Get("mode").As<Napi::String>().Utf8Value();
+      if (mode != "lossy" && mode != "lossless") {
+        Napi::TypeError::New(env, "Mode must be 'lossy' or 'lossless'")
+            .ThrowAsJavaScriptException();
+        return env.Undefined();
+      }
       lossy = (mode == "lossy");
     }
 

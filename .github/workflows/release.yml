@@ -106,7 +106,7 @@ jobs:
         shell: bash
         run: |
           tar czf "qpdf-compress-${{ github.ref_name }}-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz" \
-            -C build/Release qpdf_compress.node
+            build/Release/qpdf_compress.node
 
       - name: Upload artifact
         uses: actions/upload-artifact@v5

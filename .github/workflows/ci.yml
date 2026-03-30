@@ -45,4 +45,5 @@ jobs:
         env:
           VCPKG_ROOT: ${{ runner.os == 'Windows' && 'C:\vcpkg' || '' }}
 
+      - run: npx tsc --noEmit
       - run: npm test

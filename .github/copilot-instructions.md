@@ -96,7 +96,7 @@ Key patterns:
 
 - **Async execution**: The compress operation runs via `Napi::AsyncWorker` to avoid blocking the event loop
 - **Static linking**: QPDF, zlib, and libjpeg-turbo are statically linked into the addon
-- **RAII file handles**: Uses scoped `FileHandle` class for safe file descriptor management
+- **RAII file handles**: Uses `std::unique_ptr<FILE>` with custom deleter for safe file management
 - **Integer overflow guards**: Buffer sizes validated before allocation
 
 ### TypeScript Layer
