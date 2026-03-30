@@ -5,7 +5,8 @@
       "sources": [
         "src/qpdf_addon.cc",
         "src/jpeg.cc",
-        "src/images.cc"
+        "src/images.cc",
+        "src/optimize.cc"
       ],
       "include_dirs": [
         "<!@(node -p \"require('node-addon-api').include\")",

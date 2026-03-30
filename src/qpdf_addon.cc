@@ -14,6 +14,7 @@
 #include <qpdf/QPDFWriter.hh>
 
 #include "images.h"
+#include "optimize.h"
 
 // ---------------------------------------------------------------------------
 // File output helper — returns empty string on success, error message on
