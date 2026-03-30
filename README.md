@@ -17,8 +17,11 @@ import { compress } from 'qpdf-compress';
 // lossless — optimize without touching image quality
 const optimized = await compress(pdfBuffer, { mode: 'lossless' });
 
-// lossy — recompress images as JPEG for maximum savings
-const smaller = await compress(pdfBuffer, { mode: 'lossy', quality: 50 });
+// lossy — auto quality, downscale to 75 DPI, strip metadata
+const smaller = await compress(pdfBuffer, { mode: 'lossy' });
+
+// lossy with explicit quality
+const tiny = await compress(pdfBuffer, { mode: 'lossy', quality: 50 });
 ```
 
 ## 💡 Why qpdf-compress?
@@ -28,6 +31,7 @@ const smaller = await compress(pdfBuffer, { mode: 'lossy', quality: 50 });
 - Native C++ — no WASM overhead, no shell-out to CLI tools
 - Non-blocking — all operations run off the main thread via N-API AsyncWorker
 - Multi-pass optimization — image dedup, JPEG Huffman optimization, Flate level 9
+- Smart defaults — DPI downscaling, metadata stripping, adaptive JPEG quality
 
 **🛠️ Developer experience**
 
@@ -52,16 +56,20 @@ const smaller = await compress(pdfBuffer, { mode: 'lossy', quality: 50 });
 
 ### 📊 How it compares
 
-|                           | **qpdf-compress**       | qpdf CLI          | Ghostscript       |
-| ------------------------- | ----------------------- | ----------------- | ----------------- |
-| Integration               | Native Node.js addon    | Shell exec        | Shell exec        |
-| Async I/O                 | ✅ Non-blocking         | ❌ Blocks on exec | ❌ Blocks on exec |
-| Image deduplication       | ✅                      | ❌                | ❌                |
-| JPEG Huffman optimization | ✅ Lossless (libjpeg)   | ❌                | ❌                |
-| Lossy image compression   | ✅ Configurable quality | ❌                | ✅                |
-| PDF repair                | ✅ Automatic            | ✅ Manual flag    | ⚠️ Partial        |
-| License                   | Apache-2.0              | Apache-2.0        | AGPL-3.0 ⚠️       |
-| Dependencies              | None¹                   | System binary     | System binary     |
+|                           | **qpdf-compress**        | qpdf CLI          | Ghostscript       |
+| ------------------------- | ------------------------ | ----------------- | ----------------- |
+| Integration               | Native Node.js addon     | Shell exec        | Shell exec        |
+| Async I/O                 | ✅ Non-blocking          | ❌ Blocks on exec | ❌ Blocks on exec |
+| Image deduplication       | ✅                       | ❌                | ❌                |
+| JPEG Huffman optimization | ✅ Lossless (libjpeg)    | ❌                | ❌                |
+| Lossy image compression   | ✅ Auto or fixed quality | ❌                | ✅                |
+| CMYK → RGB conversion     | ✅ Automatic             | ❌                | ✅                |
+| DPI downscaling           | ✅ Configurable          | ❌                | ✅                |
+| Metadata stripping        | ✅ Default on            | ✅ Manual flag    | ✅                |
+| Unused font removal       | ✅ Automatic             | ❌                | ❌                |
+| PDF repair                | ✅ Automatic             | ✅ Manual flag    | ⚠️ Partial        |
+| License                   | Apache-2.0               | Apache-2.0        | AGPL-3.0 ⚠️       |
+| Dependencies              | None¹                    | System binary     | System binary     |
 
 ¹ QPDF is statically linked — no runtime dependencies. Prebuilt binaries downloaded at install.
 
@@ -111,11 +119,18 @@ import { compress } from 'qpdf-compress';
 // lossless — optimize streams without touching image quality
 const optimized = await compress(pdfBuffer, { mode: 'lossless' });
 
-// lossy — recompress images as JPEG (default quality: 75)
+// lossy — auto quality per image (skips JPEGs ≤ q90, encodes rest at q85)
 const smaller = await compress(pdfBuffer, { mode: 'lossy' });
 
-// lossy with custom quality (1–100)
+// lossy with explicit quality (1–100)
 const tiny = await compress(pdfBuffer, { mode: 'lossy', quality: 50 });
+
+// control DPI downscaling (default: 75, 0 = disabled)
+const highRes = await compress(pdfBuffer, { mode: 'lossless', maxDpi: 150 });
+const noDpi = await compress(pdfBuffer, { mode: 'lossless', maxDpi: 0 });
+
+// keep metadata (stripped by default)
+const withMeta = await compress(pdfBuffer, { mode: 'lossless', stripMetadata: false });
 
 // file path input (avoids copying into memory twice)
 const result = await compress('/path/to/file.pdf', { mode: 'lossless' });
@@ -135,27 +150,35 @@ const fixed = await compress(damagedBuffer, { mode: 'lossless' });
 
 Compresses a PDF document. Automatically repairs damaged PDFs.
 
-| Parameter         | Type                    | Description                                        |
-| ----------------- | ----------------------- | -------------------------------------------------- |
-| `input`           | `Buffer \| string`      | PDF data or file path                              |
-| `options.mode`    | `'lossy' \| 'lossless'` | Compression mode                                   |
-| `options.quality` | `number`                | JPEG quality 1–100 (lossy only, default: 75)       |
-| `options.output`  | `string`                | Write to file path instead of returning a `Buffer` |
+| Parameter               | Type                    | Description                                                          |
+| ----------------------- | ----------------------- | -------------------------------------------------------------------- |
+| `input`                 | `Buffer \| string`      | PDF data or file path                                                |
+| `options.mode`          | `'lossy' \| 'lossless'` | Compression mode                                                     |
+| `options.quality`       | `number`                | JPEG quality 1–100 (lossy only). Omit for auto quality (recommended) |
+| `options.maxDpi`        | `number`                | Downscale images exceeding this DPI. Default: `75`. `0` = disabled   |
+| `options.stripMetadata` | `boolean`               | Remove XMP metadata, document info, and thumbnails. Default: `true`  |
+| `options.output`        | `string`                | Write to file path instead of returning a `Buffer`                   |
 
-**Lossless mode:**
+**Both modes:**
 
 - Deduplicates identical images across pages
 - Optimizes embedded JPEG Huffman tables (2–15% savings, zero quality loss)
 - Recompresses all decodable streams with Flate level 9
 - Generates object streams for smaller metadata overhead
-- Removes unreferenced objects
+- Removes unreferenced objects and unused fonts
+- Downscales images exceeding `maxDpi` (default: 75 DPI)
+- Strips XMP metadata, document info, and thumbnails (default: on)
+- Converts CMYK and ICCBased color spaces to RGB
+- Automatically repairs damaged PDFs
 
-**Lossy mode** (in addition to lossless optimizations):
+**Lossy mode** (in addition to the above):
 
-- Extracts 8-bit RGB and grayscale images
-- Recompresses as JPEG at the specified quality
+- Extracts 8-bit RGB, grayscale, and CMYK images
+- **Auto quality** (default): skips existing JPEGs at q ≤ 90, encodes the rest at q85
+- **Explicit quality**: recompresses all images at the specified quality (1–100)
 - Only replaces images where JPEG is actually smaller
-- Skips tiny images (< 50×50 px), CMYK, and indexed color
+- Skips re-encoding when estimated quality is already at or below target
+- Skips tiny images (< 50×50 px)
 
 ## ⚙️ How it works
 

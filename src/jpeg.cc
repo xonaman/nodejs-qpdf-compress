@@ -1,6 +1,7 @@
 #include "jpeg.h"
 
 #include <cstdlib>
+#include <limits>
 
 void jpegErrorExit(j_common_ptr cinfo) {
   auto *myerr = reinterpret_cast<JpegErrorMgr *>(cinfo->err);

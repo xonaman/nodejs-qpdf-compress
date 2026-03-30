@@ -51,17 +51,20 @@ class CompressWorker : public Napi::AsyncWorker {
 public:
   // buffer variant
   CompressWorker(Napi::Env env, std::vector<uint8_t> data, bool lossy,
-                 int quality, std::string outputPath)
+                 int quality, int maxDpi, bool stripMeta,
+                 std::string outputPath)
       : Napi::AsyncWorker(env), deferred_(Napi::Promise::Deferred::New(env)),
         bufferData_(std::move(data)), lossy_(lossy), quality_(quality),
-        useFile_(false), outputPath_(std::move(outputPath)) {}
+        maxDpi_(maxDpi), stripMeta_(stripMeta), useFile_(false),
+        outputPath_(std::move(outputPath)) {}
 
   // file path variant
   CompressWorker(Napi::Env env, std::string path, bool lossy, int quality,
-                 std::string outputPath)
+                 int maxDpi, bool stripMeta, std::string outputPath)
       : Napi::AsyncWorker(env), deferred_(Napi::Promise::Deferred::New(env)),
         filePath_(std::move(path)), lossy_(lossy), quality_(quality),
-        useFile_(true), outputPath_(std::move(outputPath)) {}
+        maxDpi_(maxDpi), stripMeta_(stripMeta), useFile_(true),
+        outputPath_(std::move(outputPath)) {}
 
   Napi::Promise Promise() { return deferred_.Promise(); }
 
@@ -90,9 +93,17 @@ protected:
       }
 
       deduplicateImages(qpdf);
-      if (lossy_)
-        optimizeImages(qpdf, quality_);
+      if (lossy_) {
+        CompressOptions opts;
+        opts.quality = quality_;
+        optimizeImages(qpdf, opts);
+      }
+      if (maxDpi_ > 0)
+        downscaleImages(qpdf, maxDpi_);
       optimizeExistingJpegs(qpdf);
+      removeUnusedFonts(qpdf);
+      if (stripMeta_)
+        stripMetadata(qpdf);
 
       Pl_Flate::setCompressionLevel(9);
 
@@ -143,6 +154,8 @@ private:
   std::string filePath_;
   bool lossy_;
   int quality_;
+  int maxDpi_;
+  bool stripMeta_;
   bool useFile_;
   std::string outputPath_;
   std::vector<uint8_t> result_;
@@ -162,7 +175,9 @@ static Napi::Value Compress(const Napi::CallbackInfo &info) {
   }
 
   bool lossy = false;
-  int quality = 75;
+  int quality = 0;
+  int maxDpi = 0;
+  bool stripMeta = false;
   std::string outputPath;
 
   if (info.Length() >= 2 && info[1].IsObject()) {
@@ -180,11 +195,20 @@ static Napi::Value Compress(const Napi::CallbackInfo &info) {
 
     if (options.Has("quality")) {
       quality = options.Get("quality").As<Napi::Number>().Int32Value();
-      if (quality < 1)
-        quality = 1;
+      if (quality < 0)
+        quality = 0;
       if (quality > 100)
         quality = 100;
     }
+
+    if (options.Has("maxDpi")) {
+      maxDpi = options.Get("maxDpi").As<Napi::Number>().Int32Value();
+      if (maxDpi < 0)
+        maxDpi = 0;
+    }
+
+    if (options.Has("stripMetadata"))
+      stripMeta = options.Get("stripMetadata").As<Napi::Boolean>().Value();
 
     if (options.Has("output"))
       outputPath = options.Get("output").As<Napi::String>().Utf8Value();
@@ -194,7 +218,7 @@ static Napi::Value Compress(const Napi::CallbackInfo &info) {
     auto buf = info[0].As<Napi::Buffer<uint8_t>>();
     std::vector<uint8_t> data(buf.Data(), buf.Data() + buf.Length());
     auto *worker = new CompressWorker(env, std::move(data), lossy, quality,
-                                      std::move(outputPath));
+                                      maxDpi, stripMeta, std::move(outputPath));
     worker->Queue();
     return worker->Promise();
   }
@@ -202,7 +226,7 @@ static Napi::Value Compress(const Napi::CallbackInfo &info) {
   if (info[0].IsString()) {
     auto path = info[0].As<Napi::String>().Utf8Value();
     auto *worker = new CompressWorker(env, std::move(path), lossy, quality,
-                                      std::move(outputPath));
+                                      maxDpi, stripMeta, std::move(outputPath));
     worker->Queue();
     return worker->Promise();
   }

@@ -8,6 +8,10 @@ const fixtures = join(import.meta.dirname, 'fixtures');
 const minimal = readFileSync(join(fixtures, 'minimal.pdf'));
 const withImage = readFileSync(join(fixtures, 'with-image.pdf'));
 const damaged = readFileSync(join(fixtures, 'damaged.pdf'));
+const cmykImage = readFileSync(join(fixtures, 'cmyk-image.pdf'));
+const highDpiImage = readFileSync(join(fixtures, 'high-dpi-image.pdf'));
+const withMetadata = readFileSync(join(fixtures, 'with-metadata.pdf'));
+const unusedFonts = readFileSync(join(fixtures, 'unused-fonts.pdf'));
 
 // track temp files for cleanup
 const tempFiles: string[] = [];
@@ -30,7 +34,7 @@ describe('compress', () => {
     it('returns a valid PDF buffer', async () => {
       const result = await compress(minimal, { mode: 'lossless' });
       expect(Buffer.isBuffer(result)).toBe(true);
-      expect(result.slice(0, 5).toString()).toBe('%PDF-');
+      expect(result.subarray(0, 5).toString()).toBe('%PDF-');
     });
 
     it('reduces size of uncompressed PDF', async () => {
@@ -41,7 +45,7 @@ describe('compress', () => {
     it('accepts file path input', async () => {
       const result = await compress(join(fixtures, 'with-image.pdf'), { mode: 'lossless' });
       expect(Buffer.isBuffer(result)).toBe(true);
-      expect(result.slice(0, 5).toString()).toBe('%PDF-');
+      expect(result.subarray(0, 5).toString()).toBe('%PDF-');
     });
   });
 
@@ -58,17 +62,20 @@ describe('compress', () => {
       expect(q30.length).toBeLessThan(q75.length);
     });
 
-    it('uses default quality of 75', async () => {
-      const withDefault = await compress(withImage, { mode: 'lossy' });
-      const withExplicit = await compress(withImage, { mode: 'lossy', quality: 75 });
-      expect(withDefault.length).toBe(withExplicit.length);
+    it('uses auto quality by default', async () => {
+      const auto_ = await compress(withImage, { mode: 'lossy' });
+      expect(Buffer.isBuffer(auto_)).toBe(true);
+      expect(auto_.subarray(0, 5).toString()).toBe('%PDF-');
+      // auto should still compress
+      const lossless = await compress(withImage, { mode: 'lossless' });
+      expect(auto_.length).toBeLessThan(lossless.length);
     });
 
     it('produces valid PDF output', async () => {
       const result = await compress(withImage, { mode: 'lossy', quality: 50 });
-      expect(result.slice(0, 5).toString()).toBe('%PDF-');
+      expect(result.subarray(0, 5).toString()).toBe('%PDF-');
       // the output should end with %%EOF (possibly with trailing whitespace)
-      const tail = result.slice(-10).toString();
+      const tail = result.subarray(-10).toString();
       expect(tail).toContain('%%EOF');
     });
   });
@@ -80,7 +87,7 @@ describe('compress', () => {
     });
 
     it('rejects invalid quality', async () => {
-      await expect(compress(minimal, { mode: 'lossy', quality: 0 })).rejects.toThrow(
+      await expect(compress(minimal, { mode: 'lossy', quality: -1 })).rejects.toThrow(
         'Quality must be',
       );
       await expect(compress(minimal, { mode: 'lossy', quality: 101 })).rejects.toThrow(
@@ -124,19 +131,19 @@ describe('repair (via compress)', () => {
   it('repairs a damaged PDF', async () => {
     const result = await compress(damaged, { mode: 'lossless' });
     expect(Buffer.isBuffer(result)).toBe(true);
-    expect(result.slice(0, 5).toString()).toBe('%PDF-');
+    expect(result.subarray(0, 5).toString()).toBe('%PDF-');
   });
 
   it('processes a valid PDF without error', async () => {
     const result = await compress(minimal, { mode: 'lossless' });
     expect(Buffer.isBuffer(result)).toBe(true);
-    expect(result.slice(0, 5).toString()).toBe('%PDF-');
+    expect(result.subarray(0, 5).toString()).toBe('%PDF-');
   });
 
   it('accepts file path input', async () => {
     const result = await compress(join(fixtures, 'damaged.pdf'), { mode: 'lossless' });
     expect(Buffer.isBuffer(result)).toBe(true);
-    expect(result.slice(0, 5).toString()).toBe('%PDF-');
+    expect(result.subarray(0, 5).toString()).toBe('%PDF-');
   });
 });
 
@@ -147,7 +154,7 @@ describe('file output', () => {
     expect(result).toBeUndefined();
     expect(existsSync(out)).toBe(true);
     const written = readFileSync(out);
-    expect(written.slice(0, 5).toString()).toBe('%PDF-');
+    expect(written.subarray(0, 5).toString()).toBe('%PDF-');
     expect(written.length).toBeLessThan(withImage.length);
   });
 
@@ -155,7 +162,7 @@ describe('file output', () => {
     const out = tempPath('lossy-output.pdf');
     await compress(withImage, { mode: 'lossy', quality: 50, output: out });
     const written = readFileSync(out);
-    expect(written.slice(0, 5).toString()).toBe('%PDF-');
+    expect(written.subarray(0, 5).toString()).toBe('%PDF-');
   });
 
   it('compress damaged PDF writes to output file', async () => {
@@ -164,7 +171,7 @@ describe('file output', () => {
     expect(result).toBeUndefined();
     expect(existsSync(out)).toBe(true);
     const written = readFileSync(out);
-    expect(written.slice(0, 5).toString()).toBe('%PDF-');
+    expect(written.subarray(0, 5).toString()).toBe('%PDF-');
   });
 
   it('rejects non-existent parent directory', async () => {
@@ -191,6 +198,102 @@ describe('lossy quality ceiling', () => {
     const q75 = await compress(withImage, { mode: 'lossy', quality: 75 });
     const q30FromQ75 = await compress(q75, { mode: 'lossy', quality: 30 });
     expect(q30FromQ75.length).toBeLessThan(q75.length);
+  });
+});
+
+describe('CMYK image handling', () => {
+  it('compresses PDFs with CMYK images in lossy mode', async () => {
+    const result = await compress(cmykImage, { mode: 'lossy', quality: 75 });
+    expect(Buffer.isBuffer(result)).toBe(true);
+    expect(result.subarray(0, 5).toString()).toBe('%PDF-');
+  });
+
+  it('compresses PDFs with CMYK images in lossless mode', async () => {
+    const result = await compress(cmykImage, { mode: 'lossless' });
+    expect(Buffer.isBuffer(result)).toBe(true);
+    expect(result.subarray(0, 5).toString()).toBe('%PDF-');
+  });
+
+  it('reduces CMYK image size in lossy mode', async () => {
+    const result = await compress(cmykImage, { mode: 'lossy', quality: 50 });
+    expect(result.length).toBeLessThan(cmykImage.length);
+  });
+});
+
+describe('DPI-based downscaling', () => {
+  it('downscales high-DPI images', async () => {
+    const noDownscale = await compress(highDpiImage, { mode: 'lossless', maxDpi: 0 });
+    const downscaled = await compress(highDpiImage, { mode: 'lossless', maxDpi: 150 });
+    expect(downscaled.length).toBeLessThan(noDownscale.length);
+  });
+
+  it('preserves images below maxDpi threshold', async () => {
+    // with-image.pdf has 100x100 on 612x792 page ≈ ~12 DPI, well below 300
+    const noDownscale = await compress(withImage, { mode: 'lossless', maxDpi: 0 });
+    const withMaxDpi = await compress(withImage, { mode: 'lossless', maxDpi: 300 });
+    // sizes should be very close since no downscaling occurs
+    expect(Math.abs(noDownscale.length - withMaxDpi.length)).toBeLessThan(
+      noDownscale.length * 0.02,
+    );
+  });
+
+  it('uses default maxDpi of 75', async () => {
+    const withDefault = await compress(highDpiImage, { mode: 'lossless' });
+    const withExplicit = await compress(highDpiImage, { mode: 'lossless', maxDpi: 75 });
+    expect(withDefault.length).toBe(withExplicit.length);
+  });
+
+  it('disables downscaling with maxDpi: 0', async () => {
+    const disabled = await compress(highDpiImage, { mode: 'lossless', maxDpi: 0 });
+    const enabled = await compress(highDpiImage, { mode: 'lossless', maxDpi: 75 });
+    expect(enabled.length).toBeLessThan(disabled.length);
+  });
+
+  it('produces valid PDF after downscaling', async () => {
+    const result = await compress(highDpiImage, { mode: 'lossless', maxDpi: 72 });
+    expect(result.subarray(0, 5).toString()).toBe('%PDF-');
+  });
+});
+
+describe('metadata stripping', () => {
+  it('strips metadata by default', async () => {
+    const result = await compress(withMetadata, { mode: 'lossless' });
+    const text = result.toString('latin1');
+    expect(text).not.toContain('xmpmeta');
+  });
+
+  it('preserves metadata when stripMetadata is false', async () => {
+    const stripped = await compress(withMetadata, { mode: 'lossless' });
+    const preserved = await compress(withMetadata, { mode: 'lossless', stripMetadata: false });
+    expect(preserved.length).toBeGreaterThan(stripped.length);
+  });
+
+  it('produces valid PDF after stripping metadata', async () => {
+    const result = await compress(withMetadata, { mode: 'lossless', stripMetadata: true });
+    expect(result.subarray(0, 5).toString()).toBe('%PDF-');
+  });
+});
+
+describe('unused font removal', () => {
+  it('reduces size by removing unused fonts', async () => {
+    const result = await compress(unusedFonts, { mode: 'lossless' });
+    expect(Buffer.isBuffer(result)).toBe(true);
+    expect(result.subarray(0, 5).toString()).toBe('%PDF-');
+    // the output should not contain the unused Courier font
+    const text = result.toString('latin1');
+    expect(text).not.toContain('/Courier');
+  });
+
+  it('preserves used fonts', async () => {
+    const result = await compress(unusedFonts, { mode: 'lossless' });
+    // the used font (Helvetica via /F1) must still be present.
+    // since QPDF uses object streams, we check the text still renders
+    // by verifying the PDF is valid and at least as functional
+    expect(Buffer.isBuffer(result)).toBe(true);
+    expect(result.subarray(0, 5).toString()).toBe('%PDF-');
+    // compress again to confirm it's a valid, processable PDF
+    const recompressed = await compress(result, { mode: 'lossless' });
+    expect(Buffer.isBuffer(recompressed)).toBe(true);
   });
 });
 

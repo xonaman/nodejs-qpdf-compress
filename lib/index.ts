@@ -46,13 +46,17 @@ export async function compress(input: PdfInput, options: CompressOptions): Promi
   if (mode !== 'lossy' && mode !== 'lossless') {
     throw new TypeError("Mode must be 'lossy' or 'lossless'");
   }
-  const quality = options.quality ?? 75;
-  if (quality < 1 || quality > 100) {
+  const quality = options.quality ?? 0;
+  if (quality !== 0 && (quality < 1 || quality > 100)) {
     throw new RangeError('Quality must be between 1 and 100');
   }
+  const maxDpi = options.maxDpi ?? 75;
+  const stripMetadata = options.stripMetadata ?? true;
   return addon.compress(input, {
     mode,
     quality,
+    ...(maxDpi > 0 ? { maxDpi } : {}),
+    ...(stripMetadata ? { stripMetadata: true } : {}),
     ...(options.output ? { output: options.output } : {}),
   }) as Promise<Buffer | void>;
 }
