@@ -109,7 +109,7 @@ jobs:
             build/Release/qpdf_compress.node
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: prebuild-${{ matrix.platform }}-${{ matrix.arch }}
           path: qpdf-compress-*.tar.gz
@@ -176,7 +176,7 @@ jobs:
           fi
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: prebuild-linux-${{ matrix.platform-suffix && format('{0}-', matrix.platform-suffix) || '' }}${{ matrix.arch }}
           path: qpdf-compress-*.tar.gz
@@ -204,7 +204,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Download all prebuild artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           pattern: prebuild-*
           path: artifacts
