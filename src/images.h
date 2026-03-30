@@ -39,3 +39,7 @@ void deduplicateImages(QPDF &qpdf);
 void optimizeExistingJpegs(QPDF &qpdf);
 void stripMetadata(QPDF &qpdf);
 void removeUnusedFonts(QPDF &qpdf);
+void coalesceContentStreams(QPDF &qpdf);
+void deduplicateStreams(QPDF &qpdf);
+void subsetFonts(QPDF &qpdf);
+void stripIccProfiles(QPDF &qpdf);

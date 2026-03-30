@@ -103,6 +103,10 @@ protected:
       // lossless Huffman optimization for all existing JPEGs
       optimizeExistingJpegs(qpdf);
       removeUnusedFonts(qpdf);
+      subsetFonts(qpdf);
+      stripIccProfiles(qpdf);
+      coalesceContentStreams(qpdf);
+      deduplicateStreams(qpdf);
       if (stripMeta_)
         stripMetadata(qpdf);
 
@@ -110,6 +114,7 @@ protected:
 
       QPDFWriter writer(qpdf);
       writer.setOutputMemory();
+      writer.setLinearization(false);
       writer.setStreamDataMode(qpdf_s_compress);
       writer.setRecompressFlate(true);
       writer.setObjectStreamMode(qpdf_o_generate);
