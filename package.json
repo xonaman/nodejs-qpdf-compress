@@ -19,6 +19,9 @@
     "pdf-compress",
     "pdf-optimize",
     "pdf-repair",
+    "pdf-processing",
+    "pdf-tools",
+    "stream-optimization",
     "lossless",
     "lossy"
   ],

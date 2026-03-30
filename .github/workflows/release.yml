@@ -16,8 +16,8 @@ jobs:
         os: [ubuntu-latest, macos-latest]
         node-version: [20, 22, 24]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node-version }}
 
@@ -52,9 +52,12 @@ jobs:
           - os: macos-latest
             platform: darwin
             arch: arm64
+          - os: macos-latest
+            platform: darwin
+            arch: x64
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
 
@@ -70,7 +73,7 @@ jobs:
       - name: Build
         run: |
           node scripts/download-qpdf.mjs
-          npx node-gyp rebuild
+          npx node-gyp rebuild ${{ matrix.arch != 'arm64' && runner.os == 'macOS' && '--arch=x64' || '' }}
           node scripts/bundle-lib.mjs
 
       - name: Package prebuild
@@ -80,24 +83,34 @@ jobs:
           tar -czf "$TARBALL" -C build/Release qpdf_compress.node
           echo "TARBALL=$TARBALL" >> "$GITHUB_ENV"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: prebuild-${{ matrix.platform }}-${{ matrix.arch }}
           path: ${{ env.TARBALL }}
 
-  prebuild-linux-arm64:
+  prebuild-linux-cross:
     needs: test
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            docker_platform: linux/arm64
+            image: node:22-bookworm
+          - arch: arm
+            docker_platform: linux/arm/v7
+            image: node:22-bookworm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: docker/setup-qemu-action@v3
         with:
-          platforms: arm64
-      - name: Build in arm64 container
+          platforms: ${{ matrix.arch == 'arm' && 'arm' || matrix.arch }}
+      - name: Build in ${{ matrix.arch }} container
         run: |
-          docker run --rm --platform linux/arm64 \
+          docker run --rm --platform ${{ matrix.docker_platform }} \
             -v "$PWD:/work" -w /work \
-            node:22-bookworm bash -c "
+            ${{ matrix.image }} bash -c "
               apt-get update && apt-get install -y cmake g++ zlib1g-dev libjpeg-turbo8-dev python3 make &&
               npm ci --ignore-scripts &&
               node scripts/download-qpdf.mjs &&
@@ -108,30 +121,30 @@ jobs:
       - name: Package prebuild
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          TARBALL="qpdf-compress-v${VERSION}-linux-arm64.tar.gz"
+          TARBALL="qpdf-compress-v${VERSION}-linux-${{ matrix.arch }}.tar.gz"
           tar -czf "$TARBALL" -C build/Release qpdf_compress.node
           echo "TARBALL=$TARBALL" >> "$GITHUB_ENV"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
-          name: prebuild-linux-arm64
+          name: prebuild-linux-${{ matrix.arch }}
           path: ${{ env.TARBALL }}
 
   release:
-    needs: [prebuild, prebuild-linux-arm64]
+    needs: [prebuild, prebuild-linux-cross]
     runs-on: ubuntu-latest
     environment: npm
     permissions:
       contents: write
       id-token: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           path: prebuilds
           merge-multiple: true
