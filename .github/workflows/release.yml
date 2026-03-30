@@ -155,7 +155,7 @@ jobs:
               if command -v apk > /dev/null; then
                 apk add --no-cache cmake g++ make zlib-dev libjpeg-turbo-dev python3 linux-headers
               else
-                apt-get update && apt-get install -y cmake g++ zlib1g-dev libjpeg-turbo8-dev python3 make
+                apt-get update && apt-get install -y cmake g++ zlib1g-dev libjpeg62-turbo-dev python3 make
               fi &&
               npm ci --ignore-scripts &&
               node scripts/download-qpdf.mjs &&
