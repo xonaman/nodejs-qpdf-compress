@@ -89,7 +89,7 @@
                 "ExceptionHandling": 1,
                 "Optimization": 1,
                 "WholeProgramOptimization": "true",
-                "RuntimeLibrary": 2,
+                "RuntimeLibrary": 0,
                 "AdditionalOptions": [
                   "/std:c++20"
                 ]

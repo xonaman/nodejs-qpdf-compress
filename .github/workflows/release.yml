@@ -27,7 +27,7 @@ jobs:
 
       - name: Install system dependencies (Windows)
         if: runner.os == 'Windows'
-        run: vcpkg install zlib libjpeg-turbo --triplet x64-windows-static-md
+        run: vcpkg install zlib libjpeg-turbo --triplet x64-windows-static
         env:
           VCPKG_ROOT: C:\vcpkg
 
@@ -80,7 +80,7 @@ jobs:
 
       - name: Install system dependencies (Windows)
         if: runner.os == 'Windows'
-        run: vcpkg install zlib libjpeg-turbo --triplet ${{ matrix.arch }}-windows-static-md
+        run: vcpkg install zlib libjpeg-turbo --triplet ${{ matrix.arch }}-windows-static
         env:
           VCPKG_ROOT: C:\vcpkg
 
@@ -90,7 +90,7 @@ jobs:
         run: node scripts/download-qpdf.mjs
         env:
           VCPKG_ROOT: ${{ runner.os == 'Windows' && 'C:\vcpkg' || '' }}
-          VCPKG_TARGET_TRIPLET: ${{ runner.os == 'Windows' && format('{0}-windows-static-md', matrix.arch) || '' }}
+          VCPKG_TARGET_TRIPLET: ${{ runner.os == 'Windows' && format('{0}-windows-static', matrix.arch) || '' }}
 
       - name: Build native addon
         run: npx node-gyp rebuild --arch=${{ matrix.arch }}

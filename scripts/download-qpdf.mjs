@@ -109,14 +109,14 @@ if (process.platform === 'darwin') {
 if (process.platform === 'win32') {
   const vcpkgRoot = process.env.VCPKG_ROOT || join(process.env.GITHUB_WORKSPACE || '', 'vcpkg');
   if (existsSync(join(vcpkgRoot, 'scripts', 'buildsystems', 'vcpkg.cmake'))) {
-    const triplet = process.env.VCPKG_TARGET_TRIPLET || `${process.arch}-windows-static-md`;
+    const triplet = process.env.VCPKG_TARGET_TRIPLET || `${process.arch}-windows-static`;
     cmakeArgs.push(
       `-DCMAKE_TOOLCHAIN_FILE=${join(vcpkgRoot, 'scripts', 'buildsystems', 'vcpkg.cmake')}`,
       `-DVCPKG_TARGET_TRIPLET=${triplet}`,
     );
   }
-  // force dynamic CRT (/MD) to match Node.js
-  cmakeArgs.push('-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL');
+  // force static CRT (/MT) to match node-gyp
+  cmakeArgs.push('-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded');
   // MSVC uses multi-config generator — specify release at build time instead
   cmakeArgs.splice(cmakeArgs.indexOf('-DCMAKE_BUILD_TYPE=Release'), 1);
 }
@@ -167,7 +167,7 @@ if (staticLibs.length === 0) {
 
 // step 4: on Windows, copy vcpkg zlib/jpeg static libs and headers for binding.gyp
 if (process.platform === 'win32') {
-  const triplet = process.env.VCPKG_TARGET_TRIPLET || `${process.arch}-windows-static-md`;
+  const triplet = process.env.VCPKG_TARGET_TRIPLET || `${process.arch}-windows-static`;
   const vcpkgRoot = process.env.VCPKG_ROOT || '';
 
   // vcpkg packages may be in the CMake build dir or the global vcpkg root
