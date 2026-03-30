@@ -74,6 +74,16 @@ void optimizeImages(QPDF &qpdf, int quality) {
         bool isCurrentlyJpeg =
             currentFilter.isName() && currentFilter.getName() == "/DCTDecode";
 
+        // skip re-encoding if existing JPEG quality is already at or below
+        // target — re-encoding would only add generation loss
+        if (isCurrentlyJpeg) {
+          auto rawData = xobj.getRawStreamData();
+          int existingQ =
+              estimateJpegQuality(rawData->getBuffer(), rawData->getSize());
+          if (existingQ > 0 && existingQ <= quality)
+            return;
+        }
+
         // encode as JPEG via libjpeg-turbo
         std::vector<uint8_t> jpegData;
         if (!encodeJpeg(streamData->getBuffer(), width, height, components,

@@ -24,3 +24,7 @@ bool losslessJpegOptimize(const unsigned char *data, size_t size,
 // encodes raw pixels as JPEG at the given quality (1–100) via libjpeg-turbo
 bool encodeJpeg(const unsigned char *pixels, int width, int height,
                 int components, int quality, std::vector<uint8_t> &out);
+
+// estimates the IJG quality factor (1–100) from a JPEG's quantization tables.
+// returns -1 if the quality cannot be determined (corrupt, non-standard tables)
+int estimateJpegQuality(const unsigned char *data, size_t size);

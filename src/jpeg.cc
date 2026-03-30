@@ -142,3 +142,85 @@ bool encodeJpeg(const unsigned char *pixels, int width, int height,
   free(outbuf);
   return ok;
 }
+
+// ---------------------------------------------------------------------------
+// JPEG quality estimation from quantization tables
+// ---------------------------------------------------------------------------
+
+// standard IJG luminance quantization table (quality 50 baseline)
+static const unsigned int std_luminance_qt[64] = {
+    16, 11, 10, 16, 24,  40,  51,  61,  12, 12, 14, 19, 26,  58,  60,  55,
+    14, 13, 16, 24, 40,  57,  69,  56,  14, 17, 22, 29, 51,  87,  80,  62,
+    18, 22, 37, 56, 68,  109, 103, 77,  24, 35, 55, 64, 81,  104, 113, 92,
+    49, 64, 78, 87, 103, 121, 120, 101, 72, 92, 95, 98, 112, 100, 103, 99};
+
+// isolated setjmp scope for reading JPEG header
+static int estimateJpegQualityImpl(const unsigned char *data, size_t size) {
+  struct jpeg_decompress_struct cinfo = {};
+  JpegErrorMgr jerr = {};
+
+  cinfo.err = jpeg_std_error(&jerr.pub);
+  jerr.pub.error_exit = jpegErrorExit;
+
+  if (setjmp(jerr.jmpbuf)) {
+    jpeg_destroy_decompress(&cinfo);
+    return -1;
+  }
+
+  jpeg_create_decompress(&cinfo);
+  jpeg_mem_src(&cinfo, data, static_cast<unsigned long>(size));
+
+  if (jpeg_read_header(&cinfo, TRUE) != JPEG_HEADER_OK) {
+    jpeg_destroy_decompress(&cinfo);
+    return -1;
+  }
+
+  // need at least the luminance table (slot 0)
+  if (!cinfo.quant_tbl_ptrs[0]) {
+    jpeg_destroy_decompress(&cinfo);
+    return -1;
+  }
+
+  // reverse-engineer the IJG quality from the luminance table.
+  // for each quality q, IJG computes: scale = (q < 50) ? 5000/q : 200-2*q
+  // then each table value = clamp(floor((base * scale + 50) / 100), 1, 255)
+  // we find q that minimizes the sum of absolute differences.
+  JQUANT_TBL *tbl = cinfo.quant_tbl_ptrs[0];
+  int bestQ = -1;
+  long bestError = std::numeric_limits<long>::max();
+
+  for (int q = 1; q <= 100; q++) {
+    long scale = (q < 50) ? 5000L / q : 200L - 2L * q;
+    long error = 0;
+    for (int i = 0; i < 64; i++) {
+      long expected =
+          (static_cast<long>(std_luminance_qt[i]) * scale + 50L) / 100L;
+      if (expected < 1)
+        expected = 1;
+      if (expected > 255)
+        expected = 255;
+      long diff = static_cast<long>(tbl->quantval[i]) - expected;
+      error += (diff < 0) ? -diff : diff;
+    }
+    if (error < bestError) {
+      bestError = error;
+      bestQ = q;
+    }
+    // perfect match — stop early
+    if (error == 0)
+      break;
+  }
+
+  jpeg_destroy_decompress(&cinfo);
+
+  // if the best match is poor (avg > 2 per coefficient), the tables are
+  // non-standard — return -1 to signal we can't reliably estimate
+  if (bestError > 128)
+    return -1;
+
+  return bestQ;
+}
+
+int estimateJpegQuality(const unsigned char *data, size_t size) {
+  return estimateJpegQualityImpl(data, size);
+}

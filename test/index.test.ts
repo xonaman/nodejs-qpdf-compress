@@ -175,6 +175,25 @@ describe('file output', () => {
   });
 });
 
+describe('lossy quality ceiling', () => {
+  it('skips re-encoding when existing JPEG quality is at or below target', async () => {
+    // compress at q30 first, then try to "compress" again at q60
+    const q30 = await compress(withImage, { mode: 'lossy', quality: 30 });
+    const q60FromQ30 = await compress(q30, { mode: 'lossy', quality: 60 });
+    // the images should not be re-encoded (q30 ≤ q60), so sizes should be
+    // very close (only stream-level differences from QPDF relinearization)
+    const sizeDiff = Math.abs(q30.length - q60FromQ30.length);
+    expect(sizeDiff).toBeLessThan(q30.length * 0.02); // within 2%
+  });
+
+  it('re-encodes when existing JPEG quality is above target', async () => {
+    // compress at q75, then compress again at q30 — should re-encode
+    const q75 = await compress(withImage, { mode: 'lossy', quality: 75 });
+    const q30FromQ75 = await compress(q75, { mode: 'lossy', quality: 30 });
+    expect(q30FromQ75.length).toBeLessThan(q75.length);
+  });
+});
+
 describe('error handling', () => {
   it('rejects non-existent input file path', async () => {
     await expect(compress('/nonexistent/input.pdf', { mode: 'lossless' })).rejects.toThrow();
