@@ -29,7 +29,7 @@ jobs:
 
       - name: Install system dependencies (Windows)
         if: runner.os == 'Windows'
-        run: vcpkg install zlib libjpeg-turbo --triplet x64-windows-static
+        run: vcpkg install zlib libjpeg-turbo --triplet x64-windows-static-md
         env:
           VCPKG_ROOT: C:\vcpkg
 

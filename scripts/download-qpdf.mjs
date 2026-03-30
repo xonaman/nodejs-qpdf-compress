@@ -109,12 +109,14 @@ if (process.platform === 'darwin') {
 if (process.platform === 'win32') {
   const vcpkgRoot = process.env.VCPKG_ROOT || join(process.env.GITHUB_WORKSPACE || '', 'vcpkg');
   if (existsSync(join(vcpkgRoot, 'scripts', 'buildsystems', 'vcpkg.cmake'))) {
-    const triplet = process.env.VCPKG_TARGET_TRIPLET || `${process.arch}-windows-static`;
+    const triplet = process.env.VCPKG_TARGET_TRIPLET || `${process.arch}-windows-static-md`;
     cmakeArgs.push(
       `-DCMAKE_TOOLCHAIN_FILE=${join(vcpkgRoot, 'scripts', 'buildsystems', 'vcpkg.cmake')}`,
       `-DVCPKG_TARGET_TRIPLET=${triplet}`,
     );
   }
+  // force dynamic CRT (/MD) to match Node.js
+  cmakeArgs.push('-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL');
   // MSVC uses multi-config generator — specify release at build time instead
   cmakeArgs.splice(cmakeArgs.indexOf('-DCMAKE_BUILD_TYPE=Release'), 1);
 }
