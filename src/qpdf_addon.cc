@@ -1,5 +1,6 @@
 #include <napi.h>
 
+#include <cerrno>
 #include <csetjmp>
 #include <cstdio>
 #include <cstring>
@@ -421,8 +422,18 @@ protected:
       qpdf.setAttemptRecovery(true);
 
       if (useFile_) {
+        if (!std::filesystem::exists(filePath_)) {
+          SetError("Input file not found: " + filePath_);
+          return;
+        }
         qpdf.processFile(filePath_.c_str());
       } else {
+        // validate PDF header to prevent QPDF from aborting on garbage input
+        if (bufferData_.size() < 5 ||
+            memcmp(bufferData_.data(), "%PDF-", 5) != 0) {
+          SetError("Input is not a valid PDF (missing %PDF- header)");
+          return;
+        }
         qpdf.processMemoryFile(
             "input.pdf", reinterpret_cast<const char *>(bufferData_.data()),
             bufferData_.size());
@@ -470,17 +481,20 @@ protected:
           if (!parentDir.empty() && !std::filesystem::is_directory(parentDir)) {
             SetError("Parent directory does not exist: " + parentDir.string());
           } else {
-            SetError("Failed to open output file: " + outputPath_);
+            SetError("Failed to open output file: " + outputPath_ + " (" +
+                     std::strerror(errno) + ")");
           }
           return;
         }
         size_t written = fwrite(result_.data(), 1, result_.size(), f.get());
         if (written != result_.size()) {
-          SetError("Failed to write output file: " + outputPath_);
+          SetError("Failed to write output file: " + outputPath_ + " (" +
+                   std::strerror(errno) + ")");
           return;
         }
         if (fflush(f.get()) != 0) {
-          SetError("Failed to flush output file: " + outputPath_);
+          SetError("Failed to flush output file: " + outputPath_ + " (" +
+                   std::strerror(errno) + ")");
           return;
         }
         result_.clear();

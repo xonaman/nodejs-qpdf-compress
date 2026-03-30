@@ -174,3 +174,14 @@ describe('file output', () => {
     );
   });
 });
+
+describe('error handling', () => {
+  it('rejects non-existent input file path', async () => {
+    await expect(compress('/nonexistent/input.pdf', { mode: 'lossless' })).rejects.toThrow();
+  });
+
+  it('rejects non-PDF buffer', async () => {
+    const garbage = Buffer.from('this is not a PDF file at all');
+    await expect(compress(garbage, { mode: 'lossless' })).rejects.toThrow('not a valid PDF');
+  });
+});
