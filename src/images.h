@@ -29,9 +29,8 @@ template <typename Fn> void forEachImage(QPDF &qpdf, Fn &&fn) {
 }
 
 struct CompressOptions {
-  int quality = 0; // 0 = auto (per-image quality, capped at 85)
-  int maxDpi = 0;  // 0 = no downscaling
-  bool stripMetadata = false;
+  int skipThreshold = 0; // skip existing JPEGs at or below this quality
+  int targetQuality = 0; // encode/re-encode at this quality
 };
 
 void optimizeImages(QPDF &qpdf, const CompressOptions &opts);

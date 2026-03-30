@@ -51,20 +51,17 @@ class CompressWorker : public Napi::AsyncWorker {
 public:
   // buffer variant
   CompressWorker(Napi::Env env, std::vector<uint8_t> data, bool lossy,
-                 int quality, int maxDpi, bool stripMeta,
-                 std::string outputPath)
+                 bool stripMeta, std::string outputPath)
       : Napi::AsyncWorker(env), deferred_(Napi::Promise::Deferred::New(env)),
-        bufferData_(std::move(data)), lossy_(lossy), quality_(quality),
-        maxDpi_(maxDpi), stripMeta_(stripMeta), useFile_(false),
-        outputPath_(std::move(outputPath)) {}
+        bufferData_(std::move(data)), lossy_(lossy), stripMeta_(stripMeta),
+        useFile_(false), outputPath_(std::move(outputPath)) {}
 
   // file path variant
-  CompressWorker(Napi::Env env, std::string path, bool lossy, int quality,
-                 int maxDpi, bool stripMeta, std::string outputPath)
+  CompressWorker(Napi::Env env, std::string path, bool lossy, bool stripMeta,
+                 std::string outputPath)
       : Napi::AsyncWorker(env), deferred_(Napi::Promise::Deferred::New(env)),
-        filePath_(std::move(path)), lossy_(lossy), quality_(quality),
-        maxDpi_(maxDpi), stripMeta_(stripMeta), useFile_(true),
-        outputPath_(std::move(outputPath)) {}
+        filePath_(std::move(path)), lossy_(lossy), stripMeta_(stripMeta),
+        useFile_(true), outputPath_(std::move(outputPath)) {}
 
   Napi::Promise Promise() { return deferred_.Promise(); }
 
@@ -93,13 +90,20 @@ protected:
       }
 
       deduplicateImages(qpdf);
-      if (lossy_) {
+      {
         CompressOptions opts;
-        opts.quality = quality_;
+        if (lossy_) {
+          // aggressive: skip ≤ q65, re-encode at q75
+          opts.skipThreshold = 65;
+          opts.targetQuality = 75;
+        } else {
+          // conservative: only re-encode very high quality (q91+) at q85
+          opts.skipThreshold = 90;
+          opts.targetQuality = 85;
+        }
         optimizeImages(qpdf, opts);
       }
-      if (maxDpi_ > 0)
-        downscaleImages(qpdf, maxDpi_);
+      downscaleImages(qpdf, lossy_ ? 72 : 150);
       optimizeExistingJpegs(qpdf);
       removeUnusedFonts(qpdf);
       if (stripMeta_)
@@ -153,8 +157,6 @@ private:
   std::vector<uint8_t> bufferData_;
   std::string filePath_;
   bool lossy_;
-  int quality_;
-  int maxDpi_;
   bool stripMeta_;
   bool useFile_;
   std::string outputPath_;
@@ -175,37 +177,14 @@ static Napi::Value Compress(const Napi::CallbackInfo &info) {
   }
 
   bool lossy = false;
-  int quality = 0;
-  int maxDpi = 0;
   bool stripMeta = false;
   std::string outputPath;
 
   if (info.Length() >= 2 && info[1].IsObject()) {
     auto options = info[1].As<Napi::Object>();
 
-    if (options.Has("mode")) {
-      auto mode = options.Get("mode").As<Napi::String>().Utf8Value();
-      if (mode != "lossy" && mode != "lossless") {
-        Napi::TypeError::New(env, "Mode must be 'lossy' or 'lossless'")
-            .ThrowAsJavaScriptException();
-        return env.Undefined();
-      }
-      lossy = (mode == "lossy");
-    }
-
-    if (options.Has("quality")) {
-      quality = options.Get("quality").As<Napi::Number>().Int32Value();
-      if (quality < 0)
-        quality = 0;
-      if (quality > 100)
-        quality = 100;
-    }
-
-    if (options.Has("maxDpi")) {
-      maxDpi = options.Get("maxDpi").As<Napi::Number>().Int32Value();
-      if (maxDpi < 0)
-        maxDpi = 0;
-    }
+    if (options.Has("lossy"))
+      lossy = options.Get("lossy").As<Napi::Boolean>().Value();
 
     if (options.Has("stripMetadata"))
       stripMeta = options.Get("stripMetadata").As<Napi::Boolean>().Value();
@@ -217,16 +196,16 @@ static Napi::Value Compress(const Napi::CallbackInfo &info) {
   if (info[0].IsBuffer()) {
     auto buf = info[0].As<Napi::Buffer<uint8_t>>();
     std::vector<uint8_t> data(buf.Data(), buf.Data() + buf.Length());
-    auto *worker = new CompressWorker(env, std::move(data), lossy, quality,
-                                      maxDpi, stripMeta, std::move(outputPath));
+    auto *worker = new CompressWorker(env, std::move(data), lossy, stripMeta,
+                                      std::move(outputPath));
     worker->Queue();
     return worker->Promise();
   }
 
   if (info[0].IsString()) {
     auto path = info[0].As<Napi::String>().Utf8Value();
-    auto *worker = new CompressWorker(env, std::move(path), lossy, quality,
-                                      maxDpi, stripMeta, std::move(outputPath));
+    auto *worker = new CompressWorker(env, std::move(path), lossy, stripMeta,
+                                      std::move(outputPath));
     worker->Queue();
     return worker->Promise();
   }

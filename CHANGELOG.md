@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-03-30
+
+### Changed
+
+- **BREAKING**: Replaced `mode: 'lossy' | 'lossless'` with `lossy?: boolean` (default `false`)
+- **BREAKING**: Removed `quality` parameter — quality is now automatically determined per mode
+- **BREAKING**: Removed `maxDpi` parameter — DPI is now automatically determined per mode
+- **BREAKING**: Options parameter is now optional — `compress(input)` defaults to lossless
+- Lossless: skip images at q ≤ 90, re-encode at q85, downscale to 150 DPI
+- Lossy: skip images at q ≤ 65, re-encode at q75, downscale to 72 DPI
+
+## [0.2.0] - 2026-03-30
+
+### Added
+
+- CMYK → RGB conversion for JPEG images
+- ICCBased color space support (extracts and converts embedded ICC profiles)
+- PNG optimization (re-encodes as JPEG when beneficial)
+- DPI downscaling (configurable max DPI, default 75)
+- Metadata stripping (XMP, document info, thumbnails) — enabled by default
+- Unused font removal
+- Auto quality mode — estimates existing JPEG quality and skips re-encoding when already below target
+
 ## [0.1.3] - 2026-03-30
 
 ### Fixed

@@ -118,15 +118,11 @@ static std::vector<uint8_t> bilinearDownscale(const unsigned char *src,
 // Image recompression for lossy mode
 // ---------------------------------------------------------------------------
 
-// auto-mode thresholds — only re-encode existing JPEGs whose estimated
-// quality exceeds kAutoSkipThreshold (avoids pointless re-encoding where
-// generation loss outweighs size savings).  Non-JPEG images and high-quality
-// JPEGs are (re-)encoded at kAutoTargetQuality.
-static constexpr int kAutoSkipThreshold = 90;
-static constexpr int kAutoTargetQuality = 85;
+// Image recompression thresholds are passed via CompressOptions:
+//   - lossless mode: skipThreshold=90, targetQuality=85  (conservative)
+//   - lossy mode:    skipThreshold=65, targetQuality=75  (aggressive)
 
 void optimizeImages(QPDF &qpdf, const CompressOptions &opts) {
-  const bool autoQuality = (opts.quality == 0);
   forEachImage(qpdf, [&](const std::string &, QPDFObjectHandle xobj,
                          QPDFObjectHandle, QPDFPageObjectHelper &) {
     auto dict = xobj.getDict();
@@ -192,30 +188,19 @@ void optimizeImages(QPDF &qpdf, const CompressOptions &opts) {
     bool isCurrentlyJpeg =
         currentFilter.isName() && currentFilter.getName() == "/DCTDecode";
 
-    // determine per-image target quality
-    int targetQuality = autoQuality ? kAutoTargetQuality : opts.quality;
-
-    // in auto mode, skip existing JPEGs unless their quality is very high
-    // (> 90) — re-encoding a q86 JPEG at q85 saves almost nothing but adds
-    // artifacts.  Only high-quality originals (92, 95, 100…) benefit from
-    // re-encoding down to 85.
+    // skip existing JPEGs that are already at or below the threshold —
+    // re-encoding them adds generation loss for negligible savings
     if (isCurrentlyJpeg && !isCMYK) {
       auto rawData = xobj.getRawStreamData();
       int existingQ =
           estimateJpegQuality(rawData->getBuffer(), rawData->getSize());
-      if (autoQuality) {
-        if (existingQ > 0 && existingQ <= kAutoSkipThreshold)
-          return;
-      } else {
-        // explicit quality: use existing ceiling logic
-        if (existingQ > 0 && existingQ <= targetQuality)
-          return;
-      }
+      if (existingQ > 0 && existingQ <= opts.skipThreshold)
+        return;
     }
 
     // encode as JPEG via libjpeg-turbo
     std::vector<uint8_t> jpegData;
-    if (!encodeJpeg(pixels, width, height, encodeComponents, targetQuality,
+    if (!encodeJpeg(pixels, width, height, encodeComponents, opts.targetQuality,
                     jpegData))
       return;
 
