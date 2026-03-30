@@ -12,7 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **BREAKING**: Removed `quality` parameter — quality is now automatically determined per mode
 - **BREAKING**: Removed `maxDpi` parameter — DPI is now automatically determined per mode
 - **BREAKING**: Options parameter is now optional — `compress(input)` defaults to lossless
-- Lossless: skip images at q ≤ 90, re-encode at q85, downscale to 150 DPI
+- Lossless: pure structural optimization — no image re-encoding or downscaling
 - Lossy: skip images at q ≤ 65, re-encode at q75, downscale to 72 DPI
 
 ## [0.2.0] - 2026-03-30

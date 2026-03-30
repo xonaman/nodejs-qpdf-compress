@@ -186,20 +186,19 @@ describe('CMYK image handling', () => {
   });
 });
 
-describe('DPI-based downscaling', () => {
-  it('downscales high-DPI images in lossless mode (150 DPI)', async () => {
-    // high-dpi-image.pdf has a 300 DPI image, lossless downscales to 150
+describe('structural optimization', () => {
+  it('lossless produces smaller output via Flate 9 + object streams', async () => {
     const result = await compress(highDpiImage);
     expect(result.length).toBeLessThan(highDpiImage.length);
   });
 
-  it('lossy mode downscales more aggressively (72 DPI)', async () => {
+  it('lossy produces smaller output than lossless', async () => {
     const lossless = await compress(highDpiImage);
     const lossy = await compress(highDpiImage, { lossy: true });
     expect(lossy.length).toBeLessThan(lossless.length);
   });
 
-  it('produces valid PDF after downscaling', async () => {
+  it('produces valid PDF', async () => {
     const result = await compress(highDpiImage);
     expect(result.subarray(0, 5).toString()).toBe('%PDF-');
   });

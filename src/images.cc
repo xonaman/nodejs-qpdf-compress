@@ -204,12 +204,10 @@ void optimizeImages(QPDF &qpdf, const CompressOptions &opts) {
                     jpegData))
       return;
 
-    // only replace if we actually reduced size (for non-CMYK images)
-    if (isCurrentlyJpeg && !isCMYK) {
-      auto rawData = xobj.getRawStreamData();
-      if (jpegData.size() >= rawData->getSize())
-        return;
-    }
+    // only replace if we actually reduced size
+    auto rawData = xobj.getRawStreamData();
+    if (jpegData.size() >= rawData->getSize())
+      return;
 
     // replace stream data with JPEG
     std::string jpegStr(reinterpret_cast<char *>(jpegData.data()),
@@ -358,7 +356,7 @@ void optimizeExistingJpegs(QPDF &qpdf) {
 // DPI-based image downscaling
 // ---------------------------------------------------------------------------
 
-void downscaleImages(QPDF &qpdf, int maxDpi) {
+void downscaleImages(QPDF &qpdf, int maxDpi, int quality) {
   if (maxDpi <= 0)
     return;
 
@@ -461,13 +459,20 @@ void downscaleImages(QPDF &qpdf, int maxDpi) {
     auto scaled =
         bilinearDownscale(pixels, imgW, imgH, downscaleComponents, newW, newH);
 
-    // re-encode as Flate-compressed raw pixels
-    auto newSize = static_cast<size_t>(newW) * newH * downscaleComponents;
-    if (scaled.size() != newSize)
+    // re-encode downscaled pixels as JPEG
+    std::vector<uint8_t> jpegData;
+    if (!encodeJpeg(scaled.data(), newW, newH, downscaleComponents, quality,
+                    jpegData))
       return;
 
-    std::string rawStr(reinterpret_cast<char *>(scaled.data()), scaled.size());
-    xobj.replaceStreamData(rawStr, QPDFObjectHandle::newName("/FlateDecode"),
+    // only replace if the JPEG is actually smaller than the original stream
+    auto rawData = xobj.getRawStreamData();
+    if (jpegData.size() >= rawData->getSize())
+      return;
+
+    std::string jpegStr(reinterpret_cast<char *>(jpegData.data()),
+                        jpegData.size());
+    xobj.replaceStreamData(jpegStr, QPDFObjectHandle::newName("/DCTDecode"),
                            QPDFObjectHandle::newNull());
 
     dict.replaceKey("/Width", QPDFObjectHandle::newInteger(newW));

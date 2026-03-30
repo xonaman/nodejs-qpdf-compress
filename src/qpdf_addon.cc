@@ -90,20 +90,17 @@ protected:
       }
 
       deduplicateImages(qpdf);
-      {
+
+      if (lossy_) {
+        // lossy: re-encode high-quality JPEGs at lower quality
         CompressOptions opts;
-        if (lossy_) {
-          // aggressive: skip ≤ q65, re-encode at q75
-          opts.skipThreshold = 65;
-          opts.targetQuality = 75;
-        } else {
-          // conservative: only re-encode very high quality (q91+) at q85
-          opts.skipThreshold = 90;
-          opts.targetQuality = 85;
-        }
+        opts.skipThreshold = 65;
+        opts.targetQuality = 75;
         optimizeImages(qpdf, opts);
+        downscaleImages(qpdf, 72, 75);
       }
-      downscaleImages(qpdf, lossy_ ? 72 : 150);
+
+      // lossless Huffman optimization for all existing JPEGs
       optimizeExistingJpegs(qpdf);
       removeUnusedFonts(qpdf);
       if (stripMeta_)

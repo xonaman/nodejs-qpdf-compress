@@ -14,10 +14,10 @@ Native PDF compression for Node.js — powered by [QPDF](https://qpdf.sourceforg
 ```typescript
 import { compress } from 'qpdf-compress';
 
-// lossless (default)
+// lossless (default) — pure structural optimization
 const optimized = await compress(pdfBuffer);
 
-// lossy — aggressive quality + downscale to 72 DPI
+// lossy — image recompression + downscale to 72 DPI
 const smaller = await compress(pdfBuffer, { lossy: true });
 ```
 
@@ -28,7 +28,7 @@ const smaller = await compress(pdfBuffer, { lossy: true });
 - Native C++ — no WASM overhead, no shell-out to CLI tools
 - Non-blocking — all operations run off the main thread via N-API AsyncWorker
 - Multi-pass optimization — image dedup, JPEG Huffman optimization, Flate level 9
-- Smart defaults — DPI downscaling, metadata stripping, adaptive JPEG quality
+- Smart defaults — metadata stripping, image dedup, lossless JPEG Huffman optimization
 
 **🛠️ Developer experience**
 
@@ -61,7 +61,7 @@ const smaller = await compress(pdfBuffer, { lossy: true });
 | JPEG Huffman optimization | ✅ Lossless (libjpeg) | ❌                | ❌                |
 | Lossy image compression   | ✅ Auto quality       | ❌                | ✅                |
 | CMYK → RGB conversion     | ✅ Automatic          | ❌                | ✅                |
-| DPI downscaling           | ✅ Automatic          | ❌                | ✅                |
+| DPI downscaling           | ✅ Lossy mode         | ❌                | ✅                |
 | Metadata stripping        | ✅ Default on         | ✅ Manual flag    | ✅                |
 | Unused font removal       | ✅ Automatic          | ❌                | ❌                |
 | PDF repair                | ✅ Automatic          | ✅ Manual flag    | ⚠️ Partial        |
@@ -113,10 +113,10 @@ vcpkg install zlib libjpeg-turbo --triplet x64-windows-static
 ```typescript
 import { compress } from 'qpdf-compress';
 
-// lossless (default) — re-encodes very high quality JPEGs (q91+) at q85, 150 DPI
+// lossless (default) — pure structural optimization, no image re-encoding
 const optimized = await compress(pdfBuffer);
 
-// lossy — aggressive quality + downscale to 72 DPI
+// lossy — image recompression + downscale to 72 DPI
 const smaller = await compress(pdfBuffer, { lossy: true });
 
 // keep metadata (stripped by default)
@@ -150,26 +150,24 @@ Compresses a PDF document. Automatically repairs damaged PDFs.
 **Both modes:**
 
 - Deduplicates identical images across pages
-- Re-encodes images with auto quality thresholds (see below)
 - Optimizes embedded JPEG Huffman tables (2–15% savings, zero quality loss)
 - Recompresses all decodable streams with Flate level 9
 - Generates object streams for smaller metadata overhead
 - Removes unreferenced objects and unused fonts
 - Strips XMP metadata, document info, and thumbnails (default: on)
-- Converts CMYK and ICCBased color spaces to RGB
 - Automatically repairs damaged PDFs
 
 **Lossless (default):**
 
-- Conservative image re-encoding: skips existing JPEGs at q ≤ 90, re-encodes q91+ at q85
-- Downscales images to 150 DPI
-- Visually indistinguishable from the original
+- Pure structural optimization — no image re-encoding or downscaling
+- Visually identical to the original
 
 **Lossy** (`lossy: true`):
 
-- Aggressive image re-encoding: skips existing JPEGs at q ≤ 65, encodes the rest at q75
-- Downscales images to 72 DPI
-- Only replaces images where JPEG is actually smaller
+- Re-encodes JPEGs above q65 at q75 (skips images already at or below target)
+- Downscales images above 72 DPI (re-encoded as JPEG)
+- Converts CMYK and ICCBased color spaces to RGB
+- Only replaces images where the result is actually smaller
 - Skips tiny images (< 50×50 px)
 
 ## ⚙️ How it works
