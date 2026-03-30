@@ -167,7 +167,7 @@ if (staticLibs.length === 0) {
 
 // step 4: on Windows, copy vcpkg zlib/jpeg static libs and headers for binding.gyp
 if (process.platform === 'win32') {
-  const triplet = process.env.VCPKG_TARGET_TRIPLET || `${process.arch}-windows-static`;
+  const triplet = process.env.VCPKG_TARGET_TRIPLET || `${process.arch}-windows-static-md`;
   const vcpkgRoot = process.env.VCPKG_ROOT || '';
 
   // vcpkg packages may be in the CMake build dir or the global vcpkg root
