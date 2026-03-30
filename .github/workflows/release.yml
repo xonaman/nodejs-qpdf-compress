@@ -38,18 +38,19 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run format:check
       - run: npm run lint:check
-      - name: Build
-        run: |
-          node scripts/download-qpdf.mjs
-          npx node-gyp rebuild
-          node scripts/bundle-lib.mjs
+
+      - name: Test install script (source fallback)
+        run: node scripts/install.mjs
         env:
           VCPKG_ROOT: ${{ runner.os == 'Windows' && 'C:\vcpkg' || '' }}
+
       - run: npm test
 
   prebuild:
     needs: test
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -63,12 +64,14 @@ jobs:
           - os: macos-latest
             platform: darwin
             arch: x64
+            cross: true
           - os: windows-latest
             platform: win32
             arch: x64
           - os: windows-latest
             platform: win32
             arch: arm64
+            cross: true
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -90,124 +93,104 @@ jobs:
           VCPKG_ROOT: C:\vcpkg
 
       - run: npm ci --ignore-scripts
-      - name: Build
-        run: |
-          node scripts/download-qpdf.mjs
-          npx node-gyp rebuild ${{ matrix.arch != 'arm64' && runner.os == 'macOS' && '--arch=x64' || '' }} ${{ matrix.arch == 'arm64' && runner.os == 'Windows' && '--arch=arm64' || '' }}
-          node scripts/bundle-lib.mjs
+
+      - name: Build QPDF
+        run: node scripts/download-qpdf.mjs
         env:
           VCPKG_ROOT: ${{ runner.os == 'Windows' && 'C:\vcpkg' || '' }}
           VCPKG_TARGET_TRIPLET: ${{ runner.os == 'Windows' && format('{0}-windows-static', matrix.arch) || '' }}
 
-      - name: Package prebuild (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          TARBALL="qpdf-compress-v${VERSION}-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz"
-          tar -czf "$TARBALL" -C build/Release qpdf_compress.node
-          echo "TARBALL=$TARBALL" >> "$GITHUB_ENV"
+      - name: Build native addon
+        run: npx node-gyp rebuild --arch=${{ matrix.arch }}
 
-      - name: Package prebuild (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $VERSION = node -p "require('./package.json').version"
-          $TARBALL = "qpdf-compress-v${VERSION}-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz"
-          tar -czf $TARBALL -C build/Release qpdf_compress.node
-          echo "TARBALL=$TARBALL" >> $env:GITHUB_ENV
+      - name: Bundle shared library
+        run: node scripts/bundle-lib.mjs
 
-      - uses: actions/upload-artifact@v5
+      - name: Run tests
+        if: ${{ !matrix.cross }}
+        run: npm test
+
+      - name: Create tarball
+        shell: bash
+        run: |
+          tar czf "qpdf-compress-${{ github.ref_name }}-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz" \
+            -C build/Release qpdf_compress.node
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v5
         with:
           name: prebuild-${{ matrix.platform }}-${{ matrix.arch }}
-          path: ${{ env.TARBALL }}
+          path: qpdf-compress-*.tar.gz
 
   prebuild-linux-cross:
     needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: arm64
-            docker_platform: linux/arm64
+            docker-platform: linux/arm64
             image: node:22-bookworm
           - arch: arm
-            docker_platform: linux/arm/v7
+            docker-platform: linux/arm/v7
             image: node:22-bookworm
-    steps:
-      - uses: actions/checkout@v6
-      - uses: docker/setup-qemu-action@v3
-        with:
-          platforms: ${{ matrix.arch == 'arm' && 'arm' || matrix.arch }}
-      - name: Build in ${{ matrix.arch }} container
-        run: |
-          docker run --rm --platform ${{ matrix.docker_platform }} \
-            -v "$PWD:/work" -w /work \
-            ${{ matrix.image }} bash -c "
-              apt-get update && apt-get install -y cmake g++ zlib1g-dev libjpeg-turbo8-dev python3 make &&
-              npm ci --ignore-scripts &&
-              node scripts/download-qpdf.mjs &&
-              npx node-gyp rebuild &&
-              node scripts/bundle-lib.mjs
-            "
-
-      - name: Package prebuild
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          TARBALL="qpdf-compress-v${VERSION}-linux-${{ matrix.arch }}.tar.gz"
-          tar -czf "$TARBALL" -C build/Release qpdf_compress.node
-          echo "TARBALL=$TARBALL" >> "$GITHUB_ENV"
-
-      - uses: actions/upload-artifact@v5
-        with:
-          name: prebuild-linux-${{ matrix.arch }}
-          path: ${{ env.TARBALL }}
-
-  prebuild-linux-musl:
-    needs: test
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
           - arch: x64
-            docker_platform: linux/amd64
+            platform-suffix: musl
+            docker-platform: linux/amd64
             image: node:22-alpine
           - arch: arm64
-            docker_platform: linux/arm64
+            platform-suffix: musl
+            docker-platform: linux/arm64
             image: node:22-alpine
     steps:
       - uses: actions/checkout@v6
-      - uses: docker/setup-qemu-action@v3
-        if: matrix.arch != 'x64'
+
+      - uses: docker/setup-qemu-action@v4
         with:
-          platforms: ${{ matrix.arch }}
-      - name: Build in Alpine ${{ matrix.arch }} container
+          platforms: ${{ matrix.docker-platform }}
+
+      - name: Build in Docker
+        timeout-minutes: 60
         run: |
-          docker run --rm --platform ${{ matrix.docker_platform }} \
-            -v "$PWD:/work" -w /work \
-            ${{ matrix.image }} sh -c "
-              apk add --no-cache cmake g++ make zlib-dev libjpeg-turbo-dev python3 linux-headers &&
+          docker run --rm --platform ${{ matrix.docker-platform }} \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace \
+            ${{ matrix.image }} \
+            sh -c "
+              if command -v apk > /dev/null; then
+                apk add --no-cache cmake g++ make zlib-dev libjpeg-turbo-dev python3 linux-headers
+              else
+                apt-get update && apt-get install -y cmake g++ zlib1g-dev libjpeg-turbo8-dev python3 make
+              fi &&
               npm ci --ignore-scripts &&
               node scripts/download-qpdf.mjs &&
               npx node-gyp rebuild &&
-              node scripts/bundle-lib.mjs
+              node scripts/bundle-lib.mjs &&
+              npm test
             "
 
-      - name: Package prebuild
+      - name: Create tarball
         run: |
-          VERSION=$(node -p "require('./package.json').version")
-          TARBALL="qpdf-compress-v${VERSION}-linux-musl-${{ matrix.arch }}.tar.gz"
-          tar -czf "$TARBALL" -C build/Release qpdf_compress.node
-          echo "TARBALL=$TARBALL" >> "$GITHUB_ENV"
+          suffix="${{ matrix.platform-suffix }}"
+          if [ -n "$suffix" ]; then
+            tar czf "qpdf-compress-${{ github.ref_name }}-linux-${suffix}-${{ matrix.arch }}.tar.gz" \
+              -C build/Release qpdf_compress.node
+          else
+            tar czf "qpdf-compress-${{ github.ref_name }}-linux-${{ matrix.arch }}.tar.gz" \
+              -C build/Release qpdf_compress.node
+          fi
 
-      - uses: actions/upload-artifact@v5
+      - name: Upload artifact
+        uses: actions/upload-artifact@v5
         with:
-          name: prebuild-linux-musl-${{ matrix.arch }}
-          path: ${{ env.TARBALL }}
+          name: prebuild-linux-${{ matrix.platform-suffix && format('{0}-', matrix.platform-suffix) || '' }}${{ matrix.arch }}
+          path: qpdf-compress-*.tar.gz
 
   release:
-    needs: [prebuild, prebuild-linux-cross, prebuild-linux-musl]
+    needs: [prebuild, prebuild-linux-cross]
     runs-on: ubuntu-latest
     environment: npm
     permissions:
@@ -217,21 +200,24 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
 
-      - uses: actions/download-artifact@v5
-        with:
-          path: prebuilds
-          merge-multiple: true
+      - run: npm ci --ignore-scripts
 
       - name: Publish to npm
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+      - name: Download all prebuild artifacts
+        uses: actions/download-artifact@v5
         with:
-          files: prebuilds/*
-          generate_release_notes: true
+          pattern: prebuild-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "${{ github.ref_name }}" artifacts/*.tar.gz --generate-notes
