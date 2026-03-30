@@ -105,10 +105,25 @@ if (process.platform === 'darwin') {
   }
 }
 
+// on Windows, use vcpkg for zlib and libjpeg-turbo
+if (process.platform === 'win32') {
+  const vcpkgRoot = process.env.VCPKG_ROOT || join(process.env.GITHUB_WORKSPACE || '', 'vcpkg');
+  if (existsSync(join(vcpkgRoot, 'scripts', 'buildsystems', 'vcpkg.cmake'))) {
+    cmakeArgs.push(
+      `-DCMAKE_TOOLCHAIN_FILE=${join(vcpkgRoot, 'scripts', 'buildsystems', 'vcpkg.cmake')}`,
+      '-DVCPKG_TARGET_TRIPLET=x64-windows-static',
+    );
+  }
+  // MSVC uses multi-config generator — specify release at build time instead
+  cmakeArgs.splice(cmakeArgs.indexOf('-DCMAKE_BUILD_TYPE=Release'), 1);
+}
+
 execFileSync('cmake', cmakeArgs, { stdio: 'inherit' });
-execFileSync('cmake', ['--build', buildDir, '--parallel', '--target', 'libqpdf'], {
-  stdio: 'inherit',
-});
+const buildArgs = ['--build', buildDir, '--parallel', '--target', 'libqpdf'];
+if (process.platform === 'win32') {
+  buildArgs.push('--config', 'Release');
+}
+execFileSync('cmake', buildArgs, { stdio: 'inherit' });
 
 // step 3: install headers and library
 console.log('Installing to deps/qpdf...');
@@ -126,17 +141,15 @@ if (existsSync(generatedInclude)) {
 
 // copy static library
 const libqpdfDir = join(buildDir, 'libqpdf');
-const staticLibs = readdirSync(libqpdfDir).filter(
-  (f) => f.startsWith('libqpdf') && (f.endsWith('.a') || f.endsWith('.lib')),
-);
+const isLibFile = (f) =>
+  (f.endsWith('.a') || f.endsWith('.lib')) && (f.startsWith('libqpdf') || f.startsWith('qpdf'));
+const staticLibs = readdirSync(libqpdfDir).filter(isLibFile);
 
 if (staticLibs.length === 0) {
   // try Release subdirectory (multi-config generators)
   const releaseDir = join(libqpdfDir, 'Release');
   if (existsSync(releaseDir)) {
-    const releaseLibs = readdirSync(releaseDir).filter(
-      (f) => f.startsWith('libqpdf') && (f.endsWith('.a') || f.endsWith('.lib')),
-    );
+    const releaseLibs = readdirSync(releaseDir).filter(isLibFile);
     for (const lib of releaseLibs) {
       cpSync(join(releaseDir, lib), join(depsDir, 'lib', lib));
       console.log(`Copied ${lib}`);
@@ -149,7 +162,21 @@ if (staticLibs.length === 0) {
   }
 }
 
-// step 4: clean up source and build dirs
+// step 4: on Windows, copy vcpkg zlib/jpeg static libs for binding.gyp linking
+if (process.platform === 'win32') {
+  const vcpkgLibDir = join(buildDir, 'vcpkg_installed', 'x64-windows-static', 'lib');
+  if (existsSync(vcpkgLibDir)) {
+    for (const lib of ['zlib.lib', 'jpeg.lib', 'turbojpeg.lib']) {
+      const src = join(vcpkgLibDir, lib);
+      if (existsSync(src)) {
+        cpSync(src, join(depsDir, 'lib', lib));
+        console.log(`Copied vcpkg ${lib}`);
+      }
+    }
+  }
+}
+
+// step 5: clean up source and build dirs
 rmSync(srcDir, { recursive: true, force: true });
 rmSync(buildDir, { recursive: true, force: true });
 

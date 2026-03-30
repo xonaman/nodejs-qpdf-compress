@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/qpdf-compress)](https://www.npmjs.com/package/qpdf-compress)
 [![Node.js](https://img.shields.io/node/v/qpdf-compress)](https://nodejs.org)
 [![License](https://img.shields.io/npm/l/qpdf-compress)](https://github.com/xonaman/nodejs-qpdf-compress/blob/main/LICENSE)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-blue)]()
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-blue)]()
 
 Native PDF compression for Node.js — powered by [QPDF](https://qpdf.sourceforge.io/), the industry-standard PDF transformation library. Built as a C++ addon with N-API for ABI stability across Node.js versions.
 
@@ -89,6 +89,9 @@ sudo apt install cmake g++ zlib1g-dev libjpeg-turbo8-dev
 
 # Amazon Linux / RHEL
 sudo yum install cmake3 gcc-c++ zlib-devel libjpeg-turbo-devel
+
+# Windows (using vcpkg)
+vcpkg install zlib libjpeg-turbo --triplet x64-windows-static
 ```
 
 ## 🌍 Supported Platforms
@@ -97,6 +100,7 @@ sudo yum install cmake3 gcc-c++ zlib-devel libjpeg-turbo-devel
 | ------------- | --------------- |
 | macOS         | arm64, x64      |
 | Linux (glibc) | x64, arm64, arm |
+| Windows       | x64             |
 
 Linux musl (Alpine) is supported via source compilation.
 

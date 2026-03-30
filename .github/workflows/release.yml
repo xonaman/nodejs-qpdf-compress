@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         node-version: [20, 22, 24]
     steps:
       - uses: actions/checkout@v6
@@ -29,6 +29,12 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install cmake jpeg-turbo
 
+      - name: Install system dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: vcpkg install zlib libjpeg-turbo --triplet x64-windows-static
+        env:
+          VCPKG_ROOT: C:\vcpkg
+
       - run: npm ci --ignore-scripts
       - run: npm run format:check
       - run: npm run lint:check
@@ -37,6 +43,8 @@ jobs:
           node scripts/download-qpdf.mjs
           npx node-gyp rebuild
           node scripts/bundle-lib.mjs
+        env:
+          VCPKG_ROOT: ${{ runner.os == 'Windows' && 'C:\vcpkg' || '' }}
       - run: npm test
 
   prebuild:
@@ -55,6 +63,9 @@ jobs:
           - os: macos-latest
             platform: darwin
             arch: x64
+          - os: windows-latest
+            platform: win32
+            arch: x64
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -69,19 +80,37 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install cmake jpeg-turbo
 
+      - name: Install system dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: vcpkg install zlib libjpeg-turbo --triplet x64-windows-static
+        env:
+          VCPKG_ROOT: C:\vcpkg
+
       - run: npm ci --ignore-scripts
       - name: Build
         run: |
           node scripts/download-qpdf.mjs
           npx node-gyp rebuild ${{ matrix.arch != 'arm64' && runner.os == 'macOS' && '--arch=x64' || '' }}
           node scripts/bundle-lib.mjs
+        env:
+          VCPKG_ROOT: ${{ runner.os == 'Windows' && 'C:\vcpkg' || '' }}
 
-      - name: Package prebuild
+      - name: Package prebuild (Unix)
+        if: runner.os != 'Windows'
         run: |
           VERSION=$(node -p "require('./package.json').version")
           TARBALL="qpdf-compress-v${VERSION}-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz"
           tar -czf "$TARBALL" -C build/Release qpdf_compress.node
           echo "TARBALL=$TARBALL" >> "$GITHUB_ENV"
+
+      - name: Package prebuild (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $VERSION = node -p "require('./package.json').version"
+          $TARBALL = "qpdf-compress-v${VERSION}-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz"
+          tar -czf $TARBALL -C build/Release qpdf_compress.node
+          echo "TARBALL=$TARBALL" >> $env:GITHUB_ENV
 
       - uses: actions/upload-artifact@v5
         with:

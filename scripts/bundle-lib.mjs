@@ -18,6 +18,11 @@ function strip(file) {
     console.log(`Skipping strip on macOS (known compatibility issue)`);
     return;
   }
+  if (process.platform === 'win32') {
+    // MSVC handles stripping via /LTCG and Release config
+    console.log('Skipping strip on Windows (handled by MSVC linker).');
+    return;
+  }
   try {
     execFileSync('strip', ['-s', file], { stdio: 'inherit' });
     console.log(`Stripped ${file.split('/').pop()}`);
