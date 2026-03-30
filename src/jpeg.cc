@@ -23,14 +23,14 @@ static bool losslessJpegOptimizeImpl(const unsigned char *data, size_t size,
   jerr.pub.error_exit = jpegErrorExit;
   dstinfo.err = &jerr.pub;
 
-  jpeg_create_decompress(&srcinfo);
-  jpeg_create_compress(&dstinfo);
-
   if (setjmp(jerr.jmpbuf)) {
     jpeg_destroy_decompress(&srcinfo);
     jpeg_destroy_compress(&dstinfo);
     return false;
   }
+
+  jpeg_create_decompress(&srcinfo);
+  jpeg_create_compress(&dstinfo);
 
   jpeg_mem_src(&srcinfo, data, static_cast<unsigned long>(size));
 
@@ -90,12 +90,13 @@ static bool encodeJpegImpl(const unsigned char *pixels, int width, int height,
 
   cinfo.err = jpeg_std_error(&jerr.pub);
   jerr.pub.error_exit = jpegErrorExit;
-  jpeg_create_compress(&cinfo);
 
   if (setjmp(jerr.jmpbuf)) {
     jpeg_destroy_compress(&cinfo);
     return false;
   }
+
+  jpeg_create_compress(&cinfo);
 
   *outsize = 0;
   jpeg_mem_dest(&cinfo, outbuf, outsize);
@@ -103,6 +104,10 @@ static bool encodeJpegImpl(const unsigned char *pixels, int width, int height,
   cinfo.image_width = static_cast<JDIMENSION>(width);
   cinfo.image_height = static_cast<JDIMENSION>(height);
   cinfo.input_components = components;
+  if (components != 1 && components != 3) {
+    jpeg_destroy_compress(&cinfo);
+    return false;
+  }
   cinfo.in_color_space = (components == 3) ? JCS_RGB : JCS_GRAYSCALE;
 
   jpeg_set_defaults(&cinfo);

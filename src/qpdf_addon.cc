@@ -2,6 +2,7 @@
 
 #include <cerrno>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <memory>
@@ -30,15 +31,15 @@ static std::string writeToFile(const std::string &path, const uint8_t *data,
     auto parentDir = std::filesystem::path(path).parent_path();
     if (!parentDir.empty() && !std::filesystem::is_directory(parentDir))
       return "Parent directory does not exist: " + parentDir.string();
-    return "Failed to open output file: " + path + " (" + std::strerror(errno) +
-           ")";
+    return "Failed to open output file: " + path + " (" +
+           std::string(std::strerror(errno)) + ")";
   }
   if (fwrite(data, 1, size, f.get()) != size)
     return "Failed to write output file: " + path + " (" +
-           std::strerror(errno) + ")";
+           std::string(std::strerror(errno)) + ")";
   if (fflush(f.get()) != 0)
     return "Failed to flush output file: " + path + " (" +
-           std::strerror(errno) + ")";
+           std::string(std::strerror(errno)) + ")";
   return {};
 }
 

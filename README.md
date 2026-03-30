@@ -159,7 +159,7 @@ Compresses a PDF document. Automatically repairs damaged PDFs.
 
 ## ⚙️ How it works
 
-This package embeds [QPDF](https://github.com/qpdf/qpdf) (v12.3.2) as a statically linked C++ library, exposed to Node.js via N-API. Lossless JPEG optimization uses [libjpeg-turbo](https://libjpeg-turbo.org/) at the DCT coefficient level. Image recompression in lossy mode uses [stb_image_write](https://github.com/nothings/stb) for JPEG encoding.
+This package embeds [QPDF](https://github.com/qpdf/qpdf) (v12.3.2) as a statically linked C++ library, exposed to Node.js via N-API. Lossless JPEG optimization uses [libjpeg-turbo](https://libjpeg-turbo.org/) at the DCT coefficient level. Image recompression in lossy mode also uses libjpeg-turbo for JPEG encoding.
 
 All operations run in a background thread via `Napi::AsyncWorker`, so the event loop is never blocked.
 

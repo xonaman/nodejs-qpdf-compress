@@ -1,6 +1,7 @@
 #include "images.h"
 #include "jpeg.h"
 
+#include <cstdint>
 #include <cstring>
 #include <limits>
 #include <map>
@@ -111,33 +112,33 @@ void deduplicateImages(QPDF &qpdf) {
     QPDFObjectHandle handle;
   };
 
-  std::unordered_map<size_t, std::vector<ImageEntry>> hashGroups;
+  std::unordered_map<uint64_t, std::vector<ImageEntry>> hashGroups;
   std::set<QPDFObjGen> seen;
 
   // first pass: collect image objects and hash their raw data
-  forEachImage(
-      qpdf, [&](const std::string &, QPDFObjectHandle xobj, QPDFObjectHandle) {
-        auto og = xobj.getObjGen();
-        if (seen.count(og))
-          return;
-        seen.insert(og);
+  forEachImage(qpdf, [&](const std::string & /*key*/, QPDFObjectHandle xobj,
+                         QPDFObjectHandle /*xobjects*/) {
+    auto og = xobj.getObjGen();
+    if (seen.count(og))
+      return;
+    seen.insert(og);
 
-        try {
-          auto rawData = xobj.getRawStreamData();
-          size_t size = rawData->getSize();
+    try {
+      auto rawData = xobj.getRawStreamData();
+      size_t size = rawData->getSize();
 
-          // FNV-1a hash
-          size_t hash = 14695981039346656037ULL;
-          auto *p = rawData->getBuffer();
-          for (size_t i = 0; i < size; ++i) {
-            hash ^= static_cast<size_t>(p[i]);
-            hash *= 1099511628211ULL;
-          }
+      // FNV-1a hash
+      uint64_t hash = 14695981039346656037ULL;
+      auto *p = rawData->getBuffer();
+      for (size_t i = 0; i < size; ++i) {
+        hash ^= static_cast<uint64_t>(p[i]);
+        hash *= 1099511628211ULL;
+      }
 
-          hashGroups[hash].push_back({og, size, xobj});
-        } catch (...) {
-        }
-      });
+      hashGroups[hash].push_back({og, size, xobj});
+    } catch (...) {
+    }
+  });
 
   // second pass: verify hash collisions with full byte comparison
   std::map<QPDFObjGen, QPDFObjectHandle> replacements;
@@ -184,8 +185,8 @@ void deduplicateImages(QPDF &qpdf) {
 void optimizeExistingJpegs(QPDF &qpdf) {
   std::set<QPDFObjGen> processed;
 
-  forEachImage(qpdf, [&](const std::string &, QPDFObjectHandle xobj,
-                         QPDFObjectHandle) {
+  forEachImage(qpdf, [&](const std::string & /*key*/, QPDFObjectHandle xobj,
+                         QPDFObjectHandle /*xobjects*/) {
     auto og = xobj.getObjGen();
     if (processed.count(og))
       return;

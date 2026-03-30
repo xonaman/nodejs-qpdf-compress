@@ -14,7 +14,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node-version: [20, 22, 24]
+        node-version: [22, 24]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -169,10 +169,10 @@ jobs:
           suffix="${{ matrix.platform-suffix }}"
           if [ -n "$suffix" ]; then
             tar czf "qpdf-compress-${{ github.ref_name }}-linux-${suffix}-${{ matrix.arch }}.tar.gz" \
-              -C build/Release qpdf_compress.node
+              build/Release/qpdf_compress.node
           else
             tar czf "qpdf-compress-${{ github.ref_name }}-linux-${{ matrix.arch }}.tar.gz" \
-              -C build/Release qpdf_compress.node
+              build/Release/qpdf_compress.node
           fi
 
       - name: Upload artifact
