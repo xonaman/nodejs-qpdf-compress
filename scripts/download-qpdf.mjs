@@ -166,8 +166,20 @@ if (staticLibs.length === 0) {
 // step 4: on Windows, copy vcpkg zlib/jpeg static libs and headers for binding.gyp
 if (process.platform === 'win32') {
   const triplet = process.env.VCPKG_TARGET_TRIPLET || `${process.arch}-windows-static`;
-  const vcpkgLibDir = join(buildDir, 'vcpkg_installed', triplet, 'lib');
-  if (existsSync(vcpkgLibDir)) {
+  const vcpkgRoot = process.env.VCPKG_ROOT || '';
+
+  // vcpkg packages may be in the CMake build dir or the global vcpkg root
+  const candidateLibDirs = [
+    join(buildDir, 'vcpkg_installed', triplet, 'lib'),
+    join(vcpkgRoot, 'installed', triplet, 'lib'),
+  ];
+  const candidateIncludeDirs = [
+    join(buildDir, 'vcpkg_installed', triplet, 'include'),
+    join(vcpkgRoot, 'installed', triplet, 'include'),
+  ];
+
+  const vcpkgLibDir = candidateLibDirs.find((d) => existsSync(d));
+  if (vcpkgLibDir) {
     for (const lib of ['zlib.lib', 'jpeg.lib', 'turbojpeg.lib']) {
       const src = join(vcpkgLibDir, lib);
       if (existsSync(src)) {
@@ -176,10 +188,11 @@ if (process.platform === 'win32') {
       }
     }
   }
-  const vcpkgIncludeDir = join(buildDir, 'vcpkg_installed', triplet, 'include');
-  if (existsSync(vcpkgIncludeDir)) {
+
+  const vcpkgIncludeDir = candidateIncludeDirs.find((d) => existsSync(d));
+  if (vcpkgIncludeDir) {
     cpSync(vcpkgIncludeDir, join(depsDir, 'include'), { recursive: true, force: true });
-    console.log('Copied vcpkg headers');
+    console.log(`Copied vcpkg headers from ${vcpkgIncludeDir}`);
   }
 }
 
