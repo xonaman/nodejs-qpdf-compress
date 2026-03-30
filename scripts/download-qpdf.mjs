@@ -114,6 +114,11 @@ if (process.platform === 'win32') {
       `-DCMAKE_TOOLCHAIN_FILE=${join(vcpkgRoot, 'scripts', 'buildsystems', 'vcpkg.cmake')}`,
       `-DVCPKG_TARGET_TRIPLET=${triplet}`,
     );
+
+    // cross-compile for ARM64 when triplet indicates it
+    if (triplet.startsWith('arm64')) {
+      cmakeArgs.push('-A', 'ARM64');
+    }
   }
   // force static CRT (/MT) to match node-gyp
   cmakeArgs.push('-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded');
