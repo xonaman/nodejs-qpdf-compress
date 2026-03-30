@@ -82,6 +82,12 @@ const cmakeArgs = [
   `-DCMAKE_INSTALL_PREFIX=${depsDir}`,
 ];
 
+// force -fPIC for static library objects on Linux — CMAKE_POSITION_INDEPENDENT_CODE
+// alone is not always respected by QPDF's CMake targets
+if (process.platform === 'linux') {
+  cmakeArgs.push('-DCMAKE_C_FLAGS=-fPIC', '-DCMAKE_CXX_FLAGS=-fPIC');
+}
+
 // on macOS, help CMake find Homebrew libjpeg-turbo
 if (process.platform === 'darwin') {
   const brewPrefixes = ['/opt/homebrew', '/usr/local'];
