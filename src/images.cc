@@ -2,6 +2,7 @@
 #include "jpeg.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <limits>
@@ -70,6 +71,198 @@ static void cmykToRgb(const unsigned char *cmyk, unsigned char *rgb,
     rgb[i * 3 + 2] =
         static_cast<unsigned char>(255.0 * (1.0 - y) * (1.0 - k) + 0.5);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Content stream CTM parser — find rendered image dimensions in points
+// ---------------------------------------------------------------------------
+
+// 3x3 affine matrix stored as [a b c d e f] (PDF standard order)
+struct Matrix {
+  double a = 1, b = 0, c = 0, d = 1, e = 0, f = 0;
+};
+
+static Matrix multiply(const Matrix &m1, const Matrix &m2) {
+  return {m1.a * m2.a + m1.b * m2.c, m1.a * m2.b + m1.b * m2.d,
+          m1.c * m2.a + m1.d * m2.c, m1.c * m2.b + m1.d * m2.d,
+          m1.e * m2.a + m1.f * m2.c + m2.e,
+          m1.e * m2.b + m1.f * m2.d + m2.f};
+}
+
+// returns the rendered width and height in points for each image XObject name.
+// falls back to pageW/pageH if parsing fails or the image isn't found.
+static std::map<std::string, std::pair<double, double>>
+getImageRenderedSizes(QPDFPageObjectHelper &page) {
+  std::map<std::string, std::pair<double, double>> result;
+
+  auto pageObj = page.getObjectHandle();
+  auto contents = pageObj.getKey("/Contents");
+
+  std::string contentStr;
+  try {
+    if (contents.isStream()) {
+      auto buf = contents.getStreamData(qpdf_dl_generalized);
+      contentStr.assign(reinterpret_cast<const char *>(buf->getBuffer()),
+                        buf->getSize());
+    } else if (contents.isArray()) {
+      for (int i = 0; i < contents.getArrayNItems(); ++i) {
+        auto stream = contents.getArrayItem(i);
+        if (stream.isStream()) {
+          auto buf = stream.getStreamData(qpdf_dl_generalized);
+          contentStr.append(reinterpret_cast<const char *>(buf->getBuffer()),
+                            buf->getSize());
+          contentStr += '\n';
+        }
+      }
+    }
+  } catch (...) {
+    return result;
+  }
+
+  // simple tokenizer: split on whitespace, handle names (/Xxx)
+  std::vector<std::string> tokens;
+  size_t pos = 0;
+  while (pos < contentStr.size()) {
+    // skip whitespace
+    while (pos < contentStr.size() &&
+           (contentStr[pos] == ' ' || contentStr[pos] == '\n' ||
+            contentStr[pos] == '\r' || contentStr[pos] == '\t'))
+      ++pos;
+    if (pos >= contentStr.size())
+      break;
+
+    // skip comments
+    if (contentStr[pos] == '%') {
+      while (pos < contentStr.size() && contentStr[pos] != '\n')
+        ++pos;
+      continue;
+    }
+
+    // skip strings (we don't need them)
+    if (contentStr[pos] == '(') {
+      int depth = 1;
+      ++pos;
+      while (pos < contentStr.size() && depth > 0) {
+        if (contentStr[pos] == '\\') {
+          ++pos;
+          if (pos < contentStr.size())
+            ++pos;
+        } else {
+          if (contentStr[pos] == '(')
+            ++depth;
+          else if (contentStr[pos] == ')')
+            --depth;
+          ++pos;
+        }
+      }
+      continue;
+    }
+    if (contentStr[pos] == '<' && pos + 1 < contentStr.size() &&
+        contentStr[pos + 1] != '<') {
+      ++pos;
+      while (pos < contentStr.size() && contentStr[pos] != '>')
+        ++pos;
+      if (pos < contentStr.size())
+        ++pos;
+      continue;
+    }
+
+    // skip inline images (BI ... EI)
+    // handled after tokenization
+
+    // read token
+    size_t start = pos;
+    if (contentStr[pos] == '/') {
+      ++pos;
+      while (pos < contentStr.size() && contentStr[pos] != ' ' &&
+             contentStr[pos] != '\n' && contentStr[pos] != '\r' &&
+             contentStr[pos] != '\t' && contentStr[pos] != '/' &&
+             contentStr[pos] != '[' && contentStr[pos] != ']' &&
+             contentStr[pos] != '<' && contentStr[pos] != '>' &&
+             contentStr[pos] != '(' && contentStr[pos] != ')')
+        ++pos;
+    } else if (contentStr[pos] == '[' || contentStr[pos] == ']') {
+      ++pos;
+    } else if (contentStr[pos] == '<' && pos + 1 < contentStr.size() &&
+               contentStr[pos + 1] == '<') {
+      pos += 2; // <<
+    } else if (contentStr[pos] == '>' && pos + 1 < contentStr.size() &&
+               contentStr[pos + 1] == '>') {
+      pos += 2; // >>
+    } else {
+      while (pos < contentStr.size() && contentStr[pos] != ' ' &&
+             contentStr[pos] != '\n' && contentStr[pos] != '\r' &&
+             contentStr[pos] != '\t' && contentStr[pos] != '/' &&
+             contentStr[pos] != '[' && contentStr[pos] != ']' &&
+             contentStr[pos] != '<' && contentStr[pos] != '>' &&
+             contentStr[pos] != '(' && contentStr[pos] != ')')
+        ++pos;
+    }
+
+    if (pos > start)
+      tokens.emplace_back(contentStr.substr(start, pos - start));
+  }
+
+  // walk tokens tracking CTM
+  Matrix ctm;
+  std::vector<Matrix> stack;
+  std::vector<std::string> operandStack;
+
+  for (size_t i = 0; i < tokens.size(); ++i) {
+    auto &tok = tokens[i];
+
+    if (tok == "q") {
+      stack.push_back(ctm);
+      operandStack.clear();
+    } else if (tok == "Q") {
+      if (!stack.empty()) {
+        ctm = stack.back();
+        stack.pop_back();
+      }
+      operandStack.clear();
+    } else if (tok == "cm" && operandStack.size() >= 6) {
+      // cm operator: a b c d e f cm
+      try {
+        Matrix m;
+        m.a = std::stod(operandStack[operandStack.size() - 6]);
+        m.b = std::stod(operandStack[operandStack.size() - 5]);
+        m.c = std::stod(operandStack[operandStack.size() - 4]);
+        m.d = std::stod(operandStack[operandStack.size() - 3]);
+        m.e = std::stod(operandStack[operandStack.size() - 2]);
+        m.f = std::stod(operandStack[operandStack.size() - 1]);
+        ctm = multiply(m, ctm);
+      } catch (...) {
+      }
+      operandStack.clear();
+    } else if (tok == "Do" && !operandStack.empty()) {
+      // Do operator draws an XObject
+      auto &name = operandStack.back();
+      if (!name.empty() && name[0] == '/') {
+        // rendered width = sqrt(a^2 + c^2), height = sqrt(b^2 + d^2)
+        // (these are the lengths of the column vectors of the CTM)
+        double rw = std::sqrt(ctm.a * ctm.a + ctm.c * ctm.c);
+        double rh = std::sqrt(ctm.b * ctm.b + ctm.d * ctm.d);
+        // keep the largest rendered size if an image is drawn multiple times
+        auto it = result.find(name);
+        if (it == result.end() || rw * rh > it->second.first * it->second.second)
+          result[name] = {rw, rh};
+      }
+      operandStack.clear();
+    } else {
+      // it's an operand — check if it's an operator we don't track
+      // (PDF operators are always non-numeric alpha)
+      bool isOperator = !tok.empty() && tok[0] != '/' && tok[0] != '-' &&
+                        tok[0] != '+' && tok[0] != '.' &&
+                        !(tok[0] >= '0' && tok[0] <= '9');
+      if (isOperator) {
+        operandStack.clear();
+      } else {
+        operandStack.push_back(tok);
+      }
+    }
+  }
+
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -361,8 +554,11 @@ void downscaleImages(QPDF &qpdf, int maxDpi, int quality) {
     return;
 
   std::set<QPDFObjGen> processed;
+  // cache rendered sizes per page object (keyed by page objgen)
+  std::map<QPDFObjGen, std::map<std::string, std::pair<double, double>>>
+      pageSizesCache;
 
-  forEachImage(qpdf, [&](const std::string & /*key*/, QPDFObjectHandle xobj,
+  forEachImage(qpdf, [&](const std::string &key, QPDFObjectHandle xobj,
                          QPDFObjectHandle /*xobjects*/,
                          QPDFPageObjectHelper &page) {
     auto og = xobj.getObjGen();
@@ -390,27 +586,42 @@ void downscaleImages(QPDF &qpdf, int maxDpi, int quality) {
     if (components == 0)
       return;
 
-    // get page dimensions from MediaBox (in points, 72 per inch)
-    auto mediaBox = page.getAttribute("/MediaBox", false);
-    if (!mediaBox.isArray() || mediaBox.getArrayNItems() < 4)
-      return;
-
-    double pageW = 0, pageH = 0;
-    try {
-      pageW = mediaBox.getArrayItem(2).getNumericValue() -
-              mediaBox.getArrayItem(0).getNumericValue();
-      pageH = mediaBox.getArrayItem(3).getNumericValue() -
-              mediaBox.getArrayItem(1).getNumericValue();
-    } catch (...) {
-      return;
+    // get rendered size from CTM parsing, with MediaBox fallback
+    auto pageOg = page.getObjectHandle().getObjGen();
+    auto cacheIt = pageSizesCache.find(pageOg);
+    if (cacheIt == pageSizesCache.end()) {
+      pageSizesCache[pageOg] = getImageRenderedSizes(page);
+      cacheIt = pageSizesCache.find(pageOg);
     }
 
-    if (pageW <= 0 || pageH <= 0)
+    double renderedW = 0, renderedH = 0;
+    auto sizeIt = cacheIt->second.find(key);
+    if (sizeIt != cacheIt->second.end() && sizeIt->second.first > 0 &&
+        sizeIt->second.second > 0) {
+      // CTM gives rendered size in points
+      renderedW = sizeIt->second.first;
+      renderedH = sizeIt->second.second;
+    } else {
+      // fallback: assume image fills page
+      auto mediaBox = page.getAttribute("/MediaBox", false);
+      if (!mediaBox.isArray() || mediaBox.getArrayNItems() < 4)
+        return;
+      try {
+        renderedW = mediaBox.getArrayItem(2).getNumericValue() -
+                    mediaBox.getArrayItem(0).getNumericValue();
+        renderedH = mediaBox.getArrayItem(3).getNumericValue() -
+                    mediaBox.getArrayItem(1).getNumericValue();
+      } catch (...) {
+        return;
+      }
+    }
+
+    if (renderedW <= 0 || renderedH <= 0)
       return;
 
-    // estimate effective DPI (assumes image fills page — conservative)
-    double dpiX = imgW / (pageW / 72.0);
-    double dpiY = imgH / (pageH / 72.0);
+    // calculate effective DPI from rendered size in points (72 points/inch)
+    double dpiX = imgW / (renderedW / 72.0);
+    double dpiY = imgH / (renderedH / 72.0);
     double effectiveDpi = std::max(dpiX, dpiY);
 
     if (effectiveDpi <= maxDpi)
