@@ -4,6 +4,37 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-03-31
+
+### Added
+
+- **Grayscale detection**: automatically converts RGB images where R==G==B to DeviceGray (3× raw data reduction)
+- **Bitonal conversion**: converts 8-bit grayscale images that are effectively B&W to 1-bit (8× raw data reduction)
+- **TrueType font subsetting**: strips unused glyph outlines from `/FontFile2` font programs via custom binary parser (cmap format 0/4, composite glyph dependency resolution, glyf/loca/hmtx table rebuilding)
+- **Soft mask optimization**: losslessly optimizes JPEG `/SMask` transparency streams
+- **ICC profile stripping**: replaces ICCBased color spaces with Device equivalents on images and page resources
+- **Form flattening**: stamps widget annotation appearances into page content and removes `/AcroForm`
+- **Page tree flattening**: pushes inherited attributes to individual pages for optimal QPDFWriter output
+- **Content stream coalescing**: merges multiple content streams per page into one
+- **Content stream minification**: normalizes whitespace and trims numeric formatting (trailing/leading zeros)
+- **Non-image stream deduplication**: deduplicates identical font, ICC, and other non-image streams via FNV-1a hash + full byte comparison
+- **Embedded file stripping**: removes `/EmbeddedFiles` from the document name tree
+- **JavaScript removal**: strips `/OpenAction`, `/AA`, and `/JavaScript` from catalog, pages, and annotations
+- **Accurate DPI calculation**: content stream CTM matrix parser (~170 lines) tracks `q`/`Q`/`cm`/`Do` operators to find actual rendered image dimensions, with MediaBox fallback
+
+### Fixed
+
+- **Grayscale JPEG inflation**: `convertGrayscaleImages` now skips DCTDecode images — previously replacing JPEG with raw gray + Flate inflated photographic images 2–4× in lossless mode
+- **Font subset size comparison**: compares uncompressed sizes instead of uncompressed subset vs Flate-compressed original
+- **Stream dedup safety**: `deduplicateStreams` now checks `/DecodeParms` equality — identical raw bytes with different decode parameters produce different content
+- **Content stream decoding**: decoded once per page in `subsetFonts` instead of redundantly per font
+
+### Changed
+
+- Split `images.cc` into `images.cc` (image operations) and `optimize.cc` (structural optimizations)
+- Added `font_subset.cc`/`font_subset.h` for TrueType binary parsing
+- Source: 5 `.cc` files, 4 headers, ~3000 lines total
+
 ## [0.3.0] - 2026-03-30
 
 ### Changed
