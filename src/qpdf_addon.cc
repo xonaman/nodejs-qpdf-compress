@@ -92,6 +92,7 @@ protected:
 
       deduplicateImages(qpdf);
       convertGrayscaleImages(qpdf);
+      flattenPageTree(qpdf);
 
       if (lossy_) {
         // lossy: re-encode high-quality JPEGs at lower quality

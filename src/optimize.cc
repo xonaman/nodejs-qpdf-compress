@@ -761,3 +761,10 @@ void flattenForms(QPDF &qpdf) {
   // remove the /AcroForm dictionary
   root.removeKey("/AcroForm");
 }
+
+// ---------------------------------------------------------------------------
+// Page tree flattening — push inherited attributes to pages so QPDFWriter
+// can generate a flat single-level page tree
+// ---------------------------------------------------------------------------
+
+void flattenPageTree(QPDF &qpdf) { qpdf.pushInheritedAttributesToPage(); }
