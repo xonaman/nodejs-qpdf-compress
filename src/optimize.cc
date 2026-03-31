@@ -643,3 +643,121 @@ void stripJavaScript(QPDF &qpdf) {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Form flattening — merge interactive form field appearances into page
+// content and remove the /AcroForm dictionary
+// ---------------------------------------------------------------------------
+
+void flattenForms(QPDF &qpdf) {
+  auto root = qpdf.getRoot();
+  if (!root.hasKey("/AcroForm"))
+    return;
+
+  // stamp each widget annotation's appearance into the page content,
+  // then remove the annotation
+  for (auto &page : QPDFPageDocumentHelper(qpdf).getAllPages()) {
+    auto pageObj = page.getObjectHandle();
+    if (!pageObj.hasKey("/Annots"))
+      continue;
+
+    auto annots = pageObj.getKey("/Annots");
+    if (!annots.isArray())
+      continue;
+
+    std::vector<int> widgetIndices;
+    for (int i = 0; i < annots.getArrayNItems(); ++i) {
+      auto annot = annots.getArrayItem(i);
+      if (!annot.isDictionary())
+        continue;
+
+      auto subtype = annot.getKey("/Subtype");
+      if (!subtype.isName() || subtype.getName() != "/Widget")
+        continue;
+
+      // check if there's a normal appearance to flatten
+      auto ap = annot.getKey("/AP");
+      if (!ap.isDictionary())
+        continue;
+      auto nAppearance = ap.getKey("/N");
+      if (!nAppearance.isStream())
+        continue;
+
+      // get widget rectangle
+      auto rect = annot.getKey("/Rect");
+      if (!rect.isArray() || rect.getArrayNItems() < 4)
+        continue;
+
+      try {
+        double x1 = rect.getArrayItem(0).getNumericValue();
+        double y1 = rect.getArrayItem(1).getNumericValue();
+        double x2 = rect.getArrayItem(2).getNumericValue();
+        double y2 = rect.getArrayItem(3).getNumericValue();
+
+        double w = x2 - x1;
+        double h = y2 - y1;
+        if (w <= 0 || h <= 0)
+          continue;
+
+        // get appearance stream bounding box for scaling
+        auto apDict = nAppearance.getDict();
+        double scaleX = 1.0, scaleY = 1.0;
+        if (apDict.hasKey("/BBox")) {
+          auto bbox = apDict.getKey("/BBox");
+          if (bbox.isArray() && bbox.getArrayNItems() >= 4) {
+            double bw = bbox.getArrayItem(2).getNumericValue() -
+                        bbox.getArrayItem(0).getNumericValue();
+            double bh = bbox.getArrayItem(3).getNumericValue() -
+                        bbox.getArrayItem(1).getNumericValue();
+            if (bw > 0)
+              scaleX = w / bw;
+            if (bh > 0)
+              scaleY = h / bh;
+          }
+        }
+
+        // register appearance as a form XObject on the page
+        auto resources = pageObj.getKey("/Resources");
+        if (!resources.isDictionary()) {
+          resources = QPDFObjectHandle::newDictionary();
+          pageObj.replaceKey("/Resources", resources);
+        }
+        auto xobjects = resources.getKey("/XObject");
+        if (!xobjects.isDictionary()) {
+          xobjects = QPDFObjectHandle::newDictionary();
+          resources.replaceKey("/XObject", xobjects);
+        }
+
+        std::string xobjName = "/FlatForm" + std::to_string(i);
+        xobjects.replaceKey(xobjName, nAppearance);
+
+        // ensure the appearance stream has /Type /XObject /Subtype /Form
+        if (!apDict.hasKey("/Type"))
+          apDict.replaceKey("/Type", QPDFObjectHandle::newName("/XObject"));
+        if (!apDict.hasKey("/Subtype"))
+          apDict.replaceKey("/Subtype", QPDFObjectHandle::newName("/Form"));
+
+        // build content stream snippet to stamp the appearance
+        std::string snippet = "q " + std::to_string(scaleX) + " 0 0 " +
+                              std::to_string(scaleY) + " " +
+                              std::to_string(x1) + " " + std::to_string(y1) +
+                              " cm " + xobjName + " Do Q\n";
+
+        // append to page content stream
+        page.addPageContents(
+            QPDFObjectHandle::newStream(&qpdf, snippet), false);
+
+        widgetIndices.push_back(i);
+      } catch (...) {
+        continue;
+      }
+    }
+
+    // remove widget annotations (reverse order to preserve indices)
+    for (auto it = widgetIndices.rbegin(); it != widgetIndices.rend(); ++it)
+      annots.eraseItem(*it);
+  }
+
+  // remove the /AcroForm dictionary
+  root.removeKey("/AcroForm");
+}

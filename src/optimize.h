@@ -10,3 +10,4 @@ void subsetFonts(QPDF &qpdf);
 void stripIccProfiles(QPDF &qpdf);
 void stripEmbeddedFiles(QPDF &qpdf);
 void stripJavaScript(QPDF &qpdf);
+void flattenForms(QPDF &qpdf);

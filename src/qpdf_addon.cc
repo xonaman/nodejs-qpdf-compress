@@ -108,6 +108,7 @@ protected:
       removeUnusedFonts(qpdf);
       subsetFonts(qpdf);
       stripIccProfiles(qpdf);
+      flattenForms(qpdf);
       coalesceContentStreams(qpdf);
       deduplicateStreams(qpdf);
       stripEmbeddedFiles(qpdf);
