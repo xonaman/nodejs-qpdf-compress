@@ -744,8 +744,8 @@ void flattenForms(QPDF &qpdf) {
                               " cm " + xobjName + " Do Q\n";
 
         // append to page content stream
-        page.addPageContents(
-            QPDFObjectHandle::newStream(&qpdf, snippet), false);
+        page.addPageContents(QPDFObjectHandle::newStream(&qpdf, snippet),
+                             false);
 
         widgetIndices.push_back(i);
       } catch (...) {
@@ -932,7 +932,8 @@ void minifyContentStreams(QPDF &qpdf) {
         }
         size_t start = pos;
         ++pos;
-        while (pos < raw.size() && !std::isspace(static_cast<unsigned char>(raw[pos])) &&
+        while (pos < raw.size() &&
+               !std::isspace(static_cast<unsigned char>(raw[pos])) &&
                raw[pos] != '/' && raw[pos] != '[' && raw[pos] != ']' &&
                raw[pos] != '<' && raw[pos] != '>' && raw[pos] != '(' &&
                raw[pos] != ')')
@@ -949,7 +950,8 @@ void minifyContentStreams(QPDF &qpdf) {
           needSpace = false;
         }
         size_t start = pos;
-        while (pos < raw.size() && !std::isspace(static_cast<unsigned char>(raw[pos])) &&
+        while (pos < raw.size() &&
+               !std::isspace(static_cast<unsigned char>(raw[pos])) &&
                raw[pos] != '/' && raw[pos] != '[' && raw[pos] != ']' &&
                raw[pos] != '<' && raw[pos] != '>' && raw[pos] != '(' &&
                raw[pos] != ')')

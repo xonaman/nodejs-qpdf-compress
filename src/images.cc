@@ -83,10 +83,9 @@ struct Matrix {
 };
 
 static Matrix multiply(const Matrix &m1, const Matrix &m2) {
-  return {m1.a * m2.a + m1.b * m2.c, m1.a * m2.b + m1.b * m2.d,
-          m1.c * m2.a + m1.d * m2.c, m1.c * m2.b + m1.d * m2.d,
-          m1.e * m2.a + m1.f * m2.c + m2.e,
-          m1.e * m2.b + m1.f * m2.d + m2.f};
+  return {m1.a * m2.a + m1.b * m2.c,        m1.a * m2.b + m1.b * m2.d,
+          m1.c * m2.a + m1.d * m2.c,        m1.c * m2.b + m1.d * m2.d,
+          m1.e * m2.a + m1.f * m2.c + m2.e, m1.e * m2.b + m1.f * m2.d + m2.f};
 }
 
 // returns the rendered width and height in points for each image XObject name.
@@ -244,7 +243,8 @@ getImageRenderedSizes(QPDFPageObjectHelper &page) {
         double rh = std::sqrt(ctm.b * ctm.b + ctm.d * ctm.d);
         // keep the largest rendered size if an image is drawn multiple times
         auto it = result.find(name);
-        if (it == result.end() || rw * rh > it->second.first * it->second.second)
+        if (it == result.end() ||
+            rw * rh > it->second.first * it->second.second)
           result[name] = {rw, rh};
       }
       operandStack.clear();
@@ -781,6 +781,105 @@ void convertGrayscaleImages(QPDF &qpdf) {
     dict.replaceKey("/ColorSpace", QPDFObjectHandle::newName("/DeviceGray"));
 
     // remove JPEG-specific params
+    if (dict.hasKey("/DecodeParms"))
+      dict.removeKey("/DecodeParms");
+    if (dict.hasKey("/Predictor"))
+      dict.removeKey("/Predictor");
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Bitonal conversion — convert 8-bit grayscale images that are effectively
+// black & white (all pixels near 0 or 255) to 1-bit, saving ~8x raw data
+// ---------------------------------------------------------------------------
+
+void convertBitonalImages(QPDF &qpdf) {
+  std::set<QPDFObjGen> processed;
+
+  forEachImage(qpdf, [&](const std::string & /*key*/, QPDFObjectHandle xobj,
+                         QPDFObjectHandle /*xobjects*/,
+                         QPDFPageObjectHelper & /*page*/) {
+    auto og = xobj.getObjGen();
+    if (processed.count(og))
+      return;
+    processed.insert(og);
+
+    auto dict = xobj.getDict();
+
+    // only handle 8-bit grayscale images
+    if (!dict.getKey("/BitsPerComponent").isInteger() ||
+        dict.getKey("/BitsPerComponent").getIntValue() != 8)
+      return;
+
+    auto cs = dict.getKey("/ColorSpace");
+    if (!cs.isName() || cs.getName() != "/DeviceGray")
+      return;
+
+    // skip images with masks (bitonal conversion may not be safe)
+    if (dict.hasKey("/SMask") || dict.hasKey("/Mask"))
+      return;
+
+    int width = 0, height = 0;
+    if (dict.getKey("/Width").isInteger())
+      width = static_cast<int>(dict.getKey("/Width").getIntValue());
+    if (dict.getKey("/Height").isInteger())
+      height = static_cast<int>(dict.getKey("/Height").getIntValue());
+    if (width <= 0 || height <= 0)
+      return;
+
+    // decode pixels
+    std::shared_ptr<Buffer> streamData;
+    try {
+      streamData = xobj.getStreamData(qpdf_dl_all);
+    } catch (...) {
+      return;
+    }
+
+    auto w = static_cast<size_t>(width);
+    auto h = static_cast<size_t>(height);
+    if (streamData->getSize() != w * h)
+      return;
+
+    const auto *pixels = streamData->getBuffer();
+    size_t pixelCount = w * h;
+
+    // check if all pixels are near black (<=32) or near white (>=224)
+    bool isBitonal = true;
+    for (size_t i = 0; i < pixelCount; ++i) {
+      if (pixels[i] > 32 && pixels[i] < 224) {
+        isBitonal = false;
+        break;
+      }
+    }
+
+    if (!isBitonal)
+      return;
+
+    // pack into 1-bit: 0 = black, 1 = white
+    // each row padded to byte boundary
+    size_t rowBytes = (w + 7) / 8;
+    std::vector<uint8_t> bitonalData(rowBytes * h, 0);
+
+    for (size_t y = 0; y < h; ++y) {
+      for (size_t x = 0; x < w; ++x) {
+        bool white = pixels[y * w + x] >= 224;
+        if (white)
+          bitonalData[y * rowBytes + x / 8] |=
+              static_cast<uint8_t>(0x80 >> (x % 8));
+      }
+    }
+
+    // only replace if 1-bit data is smaller than original raw stream
+    auto rawData = xobj.getRawStreamData();
+    if (bitonalData.size() >= rawData->getSize())
+      return;
+
+    std::string bitStr(reinterpret_cast<char *>(bitonalData.data()),
+                       bitonalData.size());
+    xobj.replaceStreamData(bitStr, QPDFObjectHandle::newNull(),
+                           QPDFObjectHandle::newNull());
+    dict.replaceKey("/BitsPerComponent", QPDFObjectHandle::newInteger(1));
+
     if (dict.hasKey("/DecodeParms"))
       dict.removeKey("/DecodeParms");
     if (dict.hasKey("/Predictor"))

@@ -92,6 +92,7 @@ protected:
 
       deduplicateImages(qpdf);
       convertGrayscaleImages(qpdf);
+      convertBitonalImages(qpdf);
       flattenPageTree(qpdf);
 
       if (lossy_) {
