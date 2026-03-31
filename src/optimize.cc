@@ -587,3 +587,59 @@ void stripEmbeddedFiles(QPDF &qpdf) {
   if (names.getKeys().empty())
     root.removeKey("/Names");
 }
+
+// ---------------------------------------------------------------------------
+// JavaScript and action removal — strip JS, open actions, and additional
+// actions from the catalog and all pages
+// ---------------------------------------------------------------------------
+
+void stripJavaScript(QPDF &qpdf) {
+  auto root = qpdf.getRoot();
+
+  // remove document-level open action
+  if (root.hasKey("/OpenAction"))
+    root.removeKey("/OpenAction");
+
+  // remove document-level additional actions
+  if (root.hasKey("/AA"))
+    root.removeKey("/AA");
+
+  // remove /JavaScript name tree
+  if (root.hasKey("/Names")) {
+    auto names = root.getKey("/Names");
+    if (names.isDictionary() && names.hasKey("/JavaScript"))
+      names.removeKey("/JavaScript");
+  }
+
+  // remove page-level actions and annotations with JS
+  for (auto &page : QPDFPageDocumentHelper(qpdf).getAllPages()) {
+    auto pageObj = page.getObjectHandle();
+
+    if (pageObj.hasKey("/AA"))
+      pageObj.removeKey("/AA");
+
+    // strip JS actions from annotations
+    if (!pageObj.hasKey("/Annots"))
+      continue;
+
+    auto annots = pageObj.getKey("/Annots");
+    if (!annots.isArray())
+      continue;
+
+    for (int i = 0; i < annots.getArrayNItems(); ++i) {
+      auto annot = annots.getArrayItem(i);
+      if (!annot.isDictionary())
+        continue;
+      if (annot.hasKey("/AA"))
+        annot.removeKey("/AA");
+      if (annot.hasKey("/A")) {
+        auto action = annot.getKey("/A");
+        if (action.isDictionary()) {
+          auto s = action.getKey("/S");
+          if (s.isName() && s.getName() == "/JavaScript")
+            annot.removeKey("/A");
+        }
+      }
+    }
+  }
+}

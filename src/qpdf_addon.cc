@@ -111,6 +111,7 @@ protected:
       coalesceContentStreams(qpdf);
       deduplicateStreams(qpdf);
       stripEmbeddedFiles(qpdf);
+      stripJavaScript(qpdf);
       if (stripMeta_)
         stripMetadata(qpdf);
 
