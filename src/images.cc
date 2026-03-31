@@ -489,3 +489,90 @@ void downscaleImages(QPDF &qpdf, int maxDpi, int quality) {
       dict.removeKey("/Predictor");
   });
 }
+
+// ---------------------------------------------------------------------------
+// Grayscale detection — convert RGB images that are actually grayscale to
+// DeviceGray (1/3 the raw data size)
+// ---------------------------------------------------------------------------
+
+void convertGrayscaleImages(QPDF &qpdf) {
+  std::set<QPDFObjGen> processed;
+
+  forEachImage(qpdf, [&](const std::string & /*key*/, QPDFObjectHandle xobj,
+                         QPDFObjectHandle /*xobjects*/,
+                         QPDFPageObjectHelper & /*page*/) {
+    auto og = xobj.getObjGen();
+    if (processed.count(og))
+      return;
+    processed.insert(og);
+
+    auto dict = xobj.getDict();
+
+    // only handle 8-bit RGB images
+    if (!dict.getKey("/BitsPerComponent").isInteger() ||
+        dict.getKey("/BitsPerComponent").getIntValue() != 8)
+      return;
+
+    auto cs = dict.getKey("/ColorSpace");
+    if (!cs.isName() || cs.getName() != "/DeviceRGB")
+      return;
+
+    int width = 0, height = 0;
+    if (dict.getKey("/Width").isInteger())
+      width = static_cast<int>(dict.getKey("/Width").getIntValue());
+    if (dict.getKey("/Height").isInteger())
+      height = static_cast<int>(dict.getKey("/Height").getIntValue());
+    if (width <= 0 || height <= 0)
+      return;
+
+    // decode pixels
+    std::shared_ptr<Buffer> streamData;
+    try {
+      streamData = xobj.getStreamData(qpdf_dl_all);
+    } catch (...) {
+      return;
+    }
+
+    auto w = static_cast<size_t>(width);
+    auto h = static_cast<size_t>(height);
+    size_t expectedSize = w * h * 3;
+    if (streamData->getSize() != expectedSize)
+      return;
+
+    const auto *pixels = streamData->getBuffer();
+    size_t pixelCount = w * h;
+
+    // check if all RGB triples have equal channels (R == G == B)
+    bool isGray = true;
+    for (size_t i = 0; i < pixelCount; ++i) {
+      auto r = pixels[i * 3 + 0];
+      auto g = pixels[i * 3 + 1];
+      auto b = pixels[i * 3 + 2];
+      if (r != g || g != b) {
+        isGray = false;
+        break;
+      }
+    }
+
+    if (!isGray)
+      return;
+
+    // build grayscale pixel buffer
+    std::vector<uint8_t> grayPixels(pixelCount);
+    for (size_t i = 0; i < pixelCount; ++i)
+      grayPixels[i] = pixels[i * 3];
+
+    // replace stream with raw grayscale data (Flate-compressed by QPDFWriter)
+    std::string grayStr(reinterpret_cast<char *>(grayPixels.data()),
+                        grayPixels.size());
+    xobj.replaceStreamData(grayStr, QPDFObjectHandle::newNull(),
+                           QPDFObjectHandle::newNull());
+    dict.replaceKey("/ColorSpace", QPDFObjectHandle::newName("/DeviceGray"));
+
+    // remove JPEG-specific params
+    if (dict.hasKey("/DecodeParms"))
+      dict.removeKey("/DecodeParms");
+    if (dict.hasKey("/Predictor"))
+      dict.removeKey("/Predictor");
+  });
+}

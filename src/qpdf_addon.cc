@@ -91,6 +91,7 @@ protected:
       }
 
       deduplicateImages(qpdf);
+      convertGrayscaleImages(qpdf);
 
       if (lossy_) {
         // lossy: re-encode high-quality JPEGs at lower quality

@@ -37,3 +37,4 @@ void optimizeImages(QPDF &qpdf, const CompressOptions &opts);
 void downscaleImages(QPDF &qpdf, int maxDpi, int quality);
 void deduplicateImages(QPDF &qpdf);
 void optimizeExistingJpegs(QPDF &qpdf);
+void convertGrayscaleImages(QPDF &qpdf);
