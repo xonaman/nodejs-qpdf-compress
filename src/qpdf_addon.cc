@@ -110,6 +110,7 @@ protected:
       stripIccProfiles(qpdf);
       coalesceContentStreams(qpdf);
       deduplicateStreams(qpdf);
+      stripEmbeddedFiles(qpdf);
       if (stripMeta_)
         stripMetadata(qpdf);
 

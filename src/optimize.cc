@@ -566,3 +566,24 @@ void stripIccProfiles(QPDF &qpdf) {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Embedded file stripping — remove /EmbeddedFiles from the name tree
+// ---------------------------------------------------------------------------
+
+void stripEmbeddedFiles(QPDF &qpdf) {
+  auto root = qpdf.getRoot();
+  if (!root.hasKey("/Names"))
+    return;
+
+  auto names = root.getKey("/Names");
+  if (!names.isDictionary())
+    return;
+
+  if (names.hasKey("/EmbeddedFiles"))
+    names.removeKey("/EmbeddedFiles");
+
+  // if /Names is now empty, remove it too
+  if (names.getKeys().empty())
+    root.removeKey("/Names");
+}
