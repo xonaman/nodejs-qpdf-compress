@@ -111,6 +111,7 @@ protected:
       stripIccProfiles(qpdf);
       flattenForms(qpdf);
       coalesceContentStreams(qpdf);
+      minifyContentStreams(qpdf);
       deduplicateStreams(qpdf);
       stripEmbeddedFiles(qpdf);
       stripJavaScript(qpdf);

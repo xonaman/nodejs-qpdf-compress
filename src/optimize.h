@@ -12,3 +12,4 @@ void stripEmbeddedFiles(QPDF &qpdf);
 void stripJavaScript(QPDF &qpdf);
 void flattenForms(QPDF &qpdf);
 void flattenPageTree(QPDF &qpdf);
+void minifyContentStreams(QPDF &qpdf);
