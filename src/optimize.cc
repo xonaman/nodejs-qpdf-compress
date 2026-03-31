@@ -201,7 +201,7 @@ void deduplicateStreams(QPDF &qpdf) {
 
         if (memcmp(rawI->getBuffer(), rawJ->getBuffer(), rawI->getSize()) ==
             0) {
-          // verify stream dictionaries are compatible (same /Filter, /Subtype)
+          // verify stream dictionaries are compatible
           auto dictI = group[i].handle.getDict();
           auto dictJ = group[j].handle.getDict();
 
@@ -211,7 +211,15 @@ void deduplicateStreams(QPDF &qpdf) {
                                filterI.getName() == filterJ.getName()) ||
                               (!filterI.isName() && !filterJ.isName());
 
-          if (filtersMatch)
+          // also verify DecodeParms match — different predictors on
+          // identical raw bytes would produce different decoded content
+          auto dpI = dictI.getKey("/DecodeParms");
+          auto dpJ = dictJ.getKey("/DecodeParms");
+          bool paramsMatch = (dpI.isNull() && dpJ.isNull()) ||
+                             (!dpI.isNull() && !dpJ.isNull() &&
+                              dpI.unparse() == dpJ.unparse());
+
+          if (filtersMatch && paramsMatch)
             replacements[group[j].og] = group[i].handle;
         }
       }
@@ -244,34 +252,10 @@ void deduplicateStreams(QPDF &qpdf) {
 
 // collects all Unicode code points used in a page's content stream by
 // parsing text-showing operators (Tj, TJ, ', ")
-static std::set<uint16_t> collectUsedCodes(QPDFPageObjectHelper &page,
+static std::set<uint16_t> collectUsedCodes(const std::string &contentStr,
                                            const std::string &fontKey,
                                            QPDFObjectHandle fontObj) {
   std::set<uint16_t> usedCodes;
-
-  auto pageObj = page.getObjectHandle();
-  auto contents = pageObj.getKey("/Contents");
-
-  std::string contentStr;
-  try {
-    if (contents.isStream()) {
-      auto buf = contents.getStreamData(qpdf_dl_generalized);
-      contentStr.assign(reinterpret_cast<const char *>(buf->getBuffer()),
-                        buf->getSize());
-    } else if (contents.isArray()) {
-      for (int i = 0; i < contents.getArrayNItems(); ++i) {
-        auto stream = contents.getArrayItem(i);
-        if (stream.isStream()) {
-          auto buf = stream.getStreamData(qpdf_dl_generalized);
-          contentStr.append(reinterpret_cast<const char *>(buf->getBuffer()),
-                            buf->getSize());
-          contentStr += '\n';
-        }
-      }
-    }
-  } catch (...) {
-    return usedCodes;
-  }
 
   // simple scan: find all string operands between font selection (Tf) and
   // text-showing operators. For simplicity, collect all hex/literal string
@@ -411,13 +395,36 @@ void subsetFonts(QPDF &qpdf) {
     if (!fonts.isDictionary())
       continue;
 
+    // decode content stream once per page (shared across all fonts)
+    auto contents = pageObj.getKey("/Contents");
+    std::string contentStr;
+    try {
+      if (contents.isStream()) {
+        auto buf = contents.getStreamData(qpdf_dl_generalized);
+        contentStr.assign(reinterpret_cast<const char *>(buf->getBuffer()),
+                          buf->getSize());
+      } else if (contents.isArray()) {
+        for (int i = 0; i < contents.getArrayNItems(); ++i) {
+          auto stream = contents.getArrayItem(i);
+          if (stream.isStream()) {
+            auto buf = stream.getStreamData(qpdf_dl_generalized);
+            contentStr.append(reinterpret_cast<const char *>(buf->getBuffer()),
+                              buf->getSize());
+            contentStr += '\n';
+          }
+        }
+      }
+    } catch (...) {
+      continue;
+    }
+
     for (auto &key : fonts.getKeys()) {
       auto fontObj = fonts.getKey(key);
       if (!fontObj.isDictionary())
         continue;
 
       auto og = fontObj.getObjGen();
-      auto codes = collectUsedCodes(page, key, fontObj);
+      auto codes = collectUsedCodes(contentStr, key, fontObj);
       fontUsedCodes[og].insert(codes.begin(), codes.end());
     }
   }
@@ -530,9 +537,10 @@ void subsetFonts(QPDF &qpdf) {
       if (!subsetTrueTypeFont(ttfData, ttfSize, glyphIds, subsetFont))
         continue;
 
-      // only replace if actually smaller
-      auto rawData = fontFile.getRawStreamData();
-      if (subsetFont.size() >= rawData->getSize())
+      // only replace if the subset is smaller than the original uncompressed
+      // font (both will be Flate-compressed by QPDFWriter, so comparing
+      // uncompressed sizes is the fair comparison)
+      if (subsetFont.size() >= ttfSize)
         continue;
 
       std::string fontStr(reinterpret_cast<char *>(subsetFont.data()),

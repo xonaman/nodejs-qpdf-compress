@@ -728,6 +728,13 @@ void convertGrayscaleImages(QPDF &qpdf) {
     if (!cs.isName() || cs.getName() != "/DeviceRGB")
       return;
 
+    // skip JPEG-compressed images — converting to raw gray + Flate would be
+    // larger than the original JPEG. in lossy mode, optimizeImages downstream
+    // re-encodes, but in lossless mode nothing would, causing size inflation.
+    auto filter = dict.getKey("/Filter");
+    if (filter.isName() && filter.getName() == "/DCTDecode")
+      return;
+
     int width = 0, height = 0;
     if (dict.getKey("/Width").isInteger())
       width = static_cast<int>(dict.getKey("/Width").getIntValue());
