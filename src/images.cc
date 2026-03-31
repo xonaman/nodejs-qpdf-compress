@@ -576,3 +576,51 @@ void convertGrayscaleImages(QPDF &qpdf) {
       dict.removeKey("/Predictor");
   });
 }
+
+// ---------------------------------------------------------------------------
+// Soft mask optimization — losslessly optimize /SMask JPEG streams
+// ---------------------------------------------------------------------------
+
+void optimizeSoftMasks(QPDF &qpdf) {
+  std::set<QPDFObjGen> processed;
+
+  forEachImage(qpdf, [&](const std::string & /*key*/, QPDFObjectHandle xobj,
+                         QPDFObjectHandle /*xobjects*/,
+                         QPDFPageObjectHelper & /*page*/) {
+    auto dict = xobj.getDict();
+    if (!dict.hasKey("/SMask"))
+      return;
+
+    auto smask = dict.getKey("/SMask");
+    if (!smask.isStream())
+      return;
+
+    auto og = smask.getObjGen();
+    if (processed.count(og))
+      return;
+    processed.insert(og);
+
+    auto smaskDict = smask.getDict();
+    auto filter = smaskDict.getKey("/Filter");
+    if (!filter.isName() || filter.getName() != "/DCTDecode")
+      return;
+
+    try {
+      auto rawData = smask.getRawStreamData();
+
+      std::vector<uint8_t> optimized;
+      if (!losslessJpegOptimize(rawData->getBuffer(), rawData->getSize(),
+                                optimized))
+        return;
+
+      if (optimized.size() >= rawData->getSize())
+        return;
+
+      std::string jpegStr(reinterpret_cast<char *>(optimized.data()),
+                          optimized.size());
+      smask.replaceStreamData(jpegStr, QPDFObjectHandle::newName("/DCTDecode"),
+                              QPDFObjectHandle::newNull());
+    } catch (...) {
+    }
+  });
+}

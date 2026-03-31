@@ -104,6 +104,7 @@ protected:
 
       // lossless Huffman optimization for all existing JPEGs
       optimizeExistingJpegs(qpdf);
+      optimizeSoftMasks(qpdf);
       removeUnusedFonts(qpdf);
       subsetFonts(qpdf);
       stripIccProfiles(qpdf);
