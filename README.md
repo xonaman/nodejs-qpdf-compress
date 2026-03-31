@@ -62,8 +62,16 @@ const smaller = await compress(pdfBuffer, { lossy: true });
 | Lossy image compression   | ✅ Auto quality       | ❌                | ✅                |
 | CMYK → RGB conversion     | ✅ Automatic          | ❌                | ✅                |
 | DPI downscaling           | ✅ Lossy mode         | ❌                | ✅                |
-| Metadata stripping        | ✅ Default on         | ✅ Manual flag    | ✅                |
+| Grayscale detection       | ✅ Automatic          | ❌                | ❌                |
+| Bitonal conversion        | ✅ Automatic          | ❌                | ❌                |
+| Font subsetting           | ✅ TrueType glyph     | ❌                | ❌                |
 | Unused font removal       | ✅ Automatic          | ❌                | ❌                |
+| ICC profile stripping     | ✅ Automatic          | ❌                | ❌                |
+| Form flattening           | ✅ Automatic          | ❌                | ❌                |
+| Stream deduplication      | ✅ Automatic          | ❌                | ❌                |
+| Content minification      | ✅ Automatic          | ❌                | ❌                |
+| JS/embedded file removal  | ✅ Automatic          | ❌                | ❌                |
+| Metadata stripping        | ✅ Default on         | ✅ Manual flag    | ✅                |
 | PDF repair                | ✅ Automatic          | ✅ Manual flag    | ⚠️ Partial        |
 | License                   | Apache-2.0            | Apache-2.0        | AGPL-3.0 ⚠️       |
 | Dependencies              | None¹                 | System binary     | System binary     |
@@ -149,11 +157,22 @@ Compresses a PDF document. Automatically repairs damaged PDFs.
 
 **Both modes:**
 
-- Deduplicates identical images across pages
+- Deduplicates identical images and non-image streams across pages
+- Detects and converts RGB images that are actually grayscale (3× raw data reduction)
+- Converts effectively black-and-white grayscale images to 1-bit (8× raw data reduction)
 - Optimizes embedded JPEG Huffman tables (2–15% savings, zero quality loss)
+- Optimizes soft mask (transparency) JPEG streams
+- Removes unused font resources from pages
+- Subsets TrueType fonts — strips unused glyph outlines from font programs
+- Strips ICC color profiles, replacing with Device equivalents
+- Flattens interactive forms (AcroForm) into page content
+- Flattens page tree (pushes inherited attributes to pages)
+- Coalesces multiple content streams per page into one
+- Minifies content streams (whitespace normalization, numeric formatting)
+- Strips embedded files and JavaScript actions
 - Recompresses all decodable streams with Flate level 9
 - Generates object streams for smaller metadata overhead
-- Removes unreferenced objects and unused fonts
+- Removes unreferenced objects
 - Strips XMP metadata, document info, and thumbnails (default: on)
 - Automatically repairs damaged PDFs
 
@@ -165,16 +184,37 @@ Compresses a PDF document. Automatically repairs damaged PDFs.
 **Lossy** (`lossy: true`):
 
 - Re-encodes JPEGs above q65 at q75 (skips images already at or below target)
-- Downscales images above 72 DPI (re-encoded as JPEG)
+- Downscales images exceeding 72 DPI using CTM-based rendered size detection
 - Converts CMYK and ICCBased color spaces to RGB
 - Only replaces images where the result is actually smaller
 - Skips tiny images (< 50×50 px)
 
 ## ⚙️ How it works
 
-This package embeds [QPDF](https://github.com/qpdf/qpdf) (v12.3.2) as a statically linked C++ library, exposed to Node.js via N-API. Lossless JPEG optimization uses [libjpeg-turbo](https://libjpeg-turbo.org/) at the DCT coefficient level. Image recompression in lossy mode also uses libjpeg-turbo for JPEG encoding.
+This package embeds [QPDF](https://github.com/qpdf/qpdf) (v12.3.2) as a statically linked C++ library, exposed to Node.js via N-API. Lossless JPEG optimization uses [libjpeg-turbo](https://libjpeg-turbo.org/) at the DCT coefficient level. Image recompression in lossy mode also uses libjpeg-turbo for JPEG encoding. TrueType font subsetting is handled by a custom binary parser that reads cmap tables, resolves composite glyph dependencies, and rebuilds glyf/loca/hmtx tables with only the used glyphs.
 
 All operations run in a background thread via `Napi::AsyncWorker`, so the event loop is never blocked.
+
+### Compression pipeline (execution order)
+
+1. Deduplicate identical images
+2. Convert grayscale RGB images to DeviceGray
+3. Convert bitonal grayscale images to 1-bit
+4. Flatten page tree (push inherited attributes)
+5. _(lossy only)_ Re-encode high-quality JPEGs at q75
+6. _(lossy only)_ Downscale images above 72 DPI
+7. Optimize existing JPEG Huffman tables
+8. Optimize soft mask JPEG streams
+9. Remove unused font resources
+10. Subset TrueType fonts (strip unused glyphs)
+11. Strip ICC color profiles
+12. Flatten interactive forms into page content
+13. Coalesce multiple content streams per page
+14. Minify content streams
+15. Deduplicate identical non-image streams
+16. Strip embedded files and JavaScript
+17. _(optional)_ Strip metadata
+18. QPDFWriter: Flate 9, object streams, unreferenced object removal
 
 ## License
 
