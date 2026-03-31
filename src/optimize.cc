@@ -1,4 +1,5 @@
 #include "optimize.h"
+#include "font_subset.h"
 #include "images.h"
 
 #include <cctype>
@@ -482,6 +483,64 @@ void subsetFonts(QPDF &qpdf) {
       fontObj.replaceKey("/Widths", newWidths);
       fontObj.replaceKey("/LastChar",
                          QPDFObjectHandle::newInteger(firstChar + lastUsed));
+    }
+  }
+
+  // true font subsetting: strip unused glyph outlines from TrueType fonts
+  std::set<QPDFObjGen> processedFonts;
+  for (auto &[og, usedCodes] : fontUsedCodes) {
+    if (processedFonts.count(og))
+      continue;
+    processedFonts.insert(og);
+
+    auto fontObj = qpdf.getObjectByObjGen(og);
+    if (!fontObj.isDictionary())
+      continue;
+
+    auto subtype = fontObj.getKey("/Subtype");
+    if (!subtype.isName() || subtype.getName() != "/TrueType")
+      continue;
+
+    auto descriptor = fontObj.getKey("/FontDescriptor");
+    if (!descriptor.isDictionary())
+      continue;
+
+    // TrueType fonts use /FontFile2
+    if (!descriptor.hasKey("/FontFile2"))
+      continue;
+
+    auto fontFile = descriptor.getKey("/FontFile2");
+    if (!fontFile.isStream())
+      continue;
+
+    try {
+      auto fontData = fontFile.getStreamData(qpdf_dl_all);
+      const uint8_t *ttfData = fontData->getBuffer();
+      size_t ttfSize = fontData->getSize();
+
+      // map character codes → glyph IDs via cmap
+      auto glyphIds = mapCodesToGlyphIds(ttfData, ttfSize, usedCodes);
+
+      // skip if we'd keep all or nearly all glyphs
+      // (subsetting overhead wouldn't be worth it)
+      if (glyphIds.size() >= 200)
+        continue;
+
+      std::vector<uint8_t> subsetFont;
+      if (!subsetTrueTypeFont(ttfData, ttfSize, glyphIds, subsetFont))
+        continue;
+
+      // only replace if actually smaller
+      auto rawData = fontFile.getRawStreamData();
+      if (subsetFont.size() >= rawData->getSize())
+        continue;
+
+      std::string fontStr(reinterpret_cast<char *>(subsetFont.data()),
+                          subsetFont.size());
+      fontFile.replaceStreamData(fontStr, QPDFObjectHandle::newNull(),
+                                 QPDFObjectHandle::newNull());
+    } catch (...) {
+      continue;
     }
   }
 }
