@@ -88,6 +88,8 @@ jobs:
 
       - name: Build mozjpeg
         run: node scripts/download-mozjpeg.mjs
+        env:
+          VCPKG_TARGET_TRIPLET: ${{ runner.os == 'Windows' && format('{0}-windows-static', matrix.arch) || '' }}
 
       - name: Build QPDF
         run: node scripts/download-qpdf.mjs

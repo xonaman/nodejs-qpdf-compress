@@ -95,6 +95,12 @@ if (process.platform === 'darwin') {
 if (process.platform === 'win32') {
   cmakeArgs.push('-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded');
   cmakeArgs.splice(cmakeArgs.indexOf('-DCMAKE_BUILD_TYPE=Release'), 1);
+
+  // cross-compile for ARM64 when VCPKG_TARGET_TRIPLET indicates it
+  const triplet = process.env.VCPKG_TARGET_TRIPLET || '';
+  if (triplet.startsWith('arm64')) {
+    cmakeArgs.push('-A', 'ARM64');
+  }
 }
 
 execFileSync('cmake', cmakeArgs, { stdio: 'inherit' });
