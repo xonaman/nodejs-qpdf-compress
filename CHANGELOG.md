@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-04-04
+
+### Changed
+
+- **mozjpeg**: replaced libjpeg-turbo with vendored mozjpeg 4.1.1 for 5–15% smaller JPEGs via trellis quantization, overshoot deringing, and optimized progressive scan ordering — applies to both lossy recompression and lossless Huffman optimization
+
 ## [0.5.0] - 2026-04-04
 
 ### Added
