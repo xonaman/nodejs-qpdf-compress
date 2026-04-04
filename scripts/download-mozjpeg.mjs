@@ -99,9 +99,10 @@ if (process.platform === 'win32') {
   // cross-compile for ARM64 when VCPKG_TARGET_TRIPLET indicates it
   const triplet = process.env.VCPKG_TARGET_TRIPLET || '';
   if (triplet.startsWith('arm64')) {
-    cmakeArgs.push('-A', 'ARM64');
-    // force NEON intrinsics path instead of NASM (which only targets x86/x64)
-    cmakeArgs.push('-DCMAKE_SYSTEM_PROCESSOR=aarch64', '-DNEON_INTRINSICS=ON');
+    // use lowercase 'arm64' — mozjpeg's CMakeLists.txt checks
+    // CMAKE_GENERATOR_PLATFORM with a case-sensitive regex ("arm64")
+    cmakeArgs.push('-A', 'arm64');
+    cmakeArgs.push('-DNEON_INTRINSICS=ON');
   }
 }
 

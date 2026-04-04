@@ -128,7 +128,7 @@ if (process.platform === 'win32') {
 
     // cross-compile for ARM64 when triplet indicates it
     if (triplet.startsWith('arm64')) {
-      cmakeArgs.push('-A', 'ARM64');
+      cmakeArgs.push('-A', 'arm64');
     }
   }
   // force static CRT (/MT) to match node-gyp
