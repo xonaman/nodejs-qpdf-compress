@@ -189,6 +189,24 @@ Compresses a PDF document. Automatically repairs damaged PDFs.
 - Only replaces images where the result is actually smaller
 - Skips tiny images (< 50×50 px)
 
+### `concurrency(value?): number`
+
+Gets or sets the maximum number of concurrent compress operations dispatched to the thread pool.
+
+The default is the number of CPU cores (`os.availableParallelism()`). A value of `0` resets to the default.
+
+Excess calls are queued in JavaScript, preventing libuv thread pool starvation.
+
+```typescript
+import { compress, concurrency } from 'qpdf-compress';
+
+concurrency(); // 8 (CPU cores)
+concurrency(2); // limit to 2 concurrent operations
+concurrency(0); // reset to default
+```
+
+---
+
 ## ⚙️ How it works
 
 This package embeds [QPDF](https://github.com/qpdf/qpdf) (v12.3.2) as a statically linked C++ library, exposed to Node.js via N-API. Lossless JPEG optimization uses [libjpeg-turbo](https://libjpeg-turbo.org/) at the DCT coefficient level. Image recompression in lossy mode also uses libjpeg-turbo for JPEG encoding. TrueType font subsetting is handled by a custom binary parser that reads cmap tables, resolves composite glyph dependencies, and rebuilds glyf/loca/hmtx tables with only the used glyphs.
