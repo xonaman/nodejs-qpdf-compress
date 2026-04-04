@@ -96,6 +96,7 @@ async function tryDownload() {
 
 async function buildFromSource() {
   console.log('Building from source...');
+  execSync('node scripts/download-mozjpeg.mjs', { stdio: 'inherit', cwd: root });
   execSync('node scripts/download-qpdf.mjs', { stdio: 'inherit', cwd: root });
   execSync('npx node-gyp rebuild', { stdio: 'inherit', cwd: root });
   execSync('node scripts/bundle-lib.mjs', { stdio: 'inherit', cwd: root });

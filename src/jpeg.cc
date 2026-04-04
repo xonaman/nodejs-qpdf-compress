@@ -55,6 +55,10 @@ static bool losslessJpegOptimizeImpl(const unsigned char *data, size_t size,
   jpeg_copy_critical_parameters(&srcinfo, &dstinfo);
   dstinfo.optimize_coding = TRUE;
 
+  // mozjpeg progressive scan optimization — lossless, reorders existing DCT
+  // coefficients into optimized progressive scans for better entropy coding
+  jpeg_simple_progression(&dstinfo);
+
   jpeg_write_coefficients(&dstinfo, coef_arrays);
   jpeg_finish_compress(&dstinfo);
   jpeg_finish_decompress(&srcinfo);
@@ -79,7 +83,7 @@ bool losslessJpegOptimize(const unsigned char *data, size_t size,
 }
 
 // ---------------------------------------------------------------------------
-// Lossy JPEG encoding via libjpeg-turbo
+// Lossy JPEG encoding via mozjpeg
 // ---------------------------------------------------------------------------
 
 // isolated setjmp scope
@@ -114,6 +118,16 @@ static bool encodeJpegImpl(const unsigned char *pixels, int width, int height,
   jpeg_set_defaults(&cinfo);
   jpeg_set_quality(&cinfo, quality, TRUE);
   cinfo.optimize_coding = TRUE;
+
+  // mozjpeg trellis quantization — 5–15% smaller at same perceptual quality
+  jpeg_c_set_bool_param(&cinfo, JBOOLEAN_TRELLIS_QUANT, TRUE);
+  jpeg_c_set_bool_param(&cinfo, JBOOLEAN_TRELLIS_QUANT_DC, TRUE);
+  jpeg_c_set_bool_param(&cinfo, JBOOLEAN_OVERSHOOT_DERINGING, TRUE);
+  jpeg_c_set_bool_param(&cinfo, JBOOLEAN_USE_SCANS_IN_TRELLIS, TRUE);
+  jpeg_c_set_bool_param(&cinfo, JBOOLEAN_USE_LAMBDA_WEIGHT_TBL, TRUE);
+
+  // mozjpeg progressive scan optimization
+  jpeg_simple_progression(&cinfo);
 
   jpeg_start_compress(&cinfo, TRUE);
 

@@ -12,6 +12,7 @@
       "include_dirs": [
         "<!@(node -p \"require('node-addon-api').include\")",
         "deps/qpdf/include",
+        "deps/mozjpeg/include",
         "src"
       ],
       "defines": [
@@ -39,7 +40,8 @@
           {
             "include_dirs": [
               "/opt/homebrew/include",
-              "/usr/local/include"
+              "/usr/local/include",
+              "<(module_root_dir)/deps/mozjpeg/include"
             ],
             "xcode_settings": {
               "GCC_ENABLE_CPP_EXCEPTIONS": "YES",
@@ -58,7 +60,7 @@
                 "-L/opt/homebrew/lib",
                 "-L/usr/local/lib",
                 "-lz",
-                "-ljpeg",
+                "<(module_root_dir)/deps/mozjpeg/lib/libjpeg.a",
                 "-flto",
                 "-Wl,-dead_strip",
                 "-Wl,-S"
@@ -72,7 +74,7 @@
             "libraries": [
               "<(module_root_dir)/deps/qpdf/lib/libqpdf.a",
               "-lz",
-              "-ljpeg",
+              "<(module_root_dir)/deps/mozjpeg/lib/libjpeg.a",
               "-flto",
               "-Wl,--gc-sections",
               "-Wl,-S",
@@ -104,7 +106,7 @@
             "libraries": [
               "<(module_root_dir)/deps/qpdf/lib/qpdf.lib",
               "<(module_root_dir)/deps/qpdf/lib/zlib.lib",
-              "<(module_root_dir)/deps/qpdf/lib/jpeg.lib"
+              "<(module_root_dir)/deps/mozjpeg/lib/jpeg-static.lib"
             ]
           }
         ]

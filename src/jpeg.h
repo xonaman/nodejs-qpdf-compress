@@ -21,7 +21,7 @@ void jpegErrorExit(j_common_ptr cinfo);
 bool losslessJpegOptimize(const unsigned char *data, size_t size,
                           std::vector<uint8_t> &out);
 
-// encodes raw pixels as JPEG at the given quality (1–100) via libjpeg-turbo
+// encodes raw pixels as JPEG at the given quality (1–100) via mozjpeg
 bool encodeJpeg(const unsigned char *pixels, int width, int height,
                 int components, int quality, std::vector<uint8_t> &out);
 

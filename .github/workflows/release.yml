@@ -23,11 +23,11 @@ jobs:
 
       - name: Install system dependencies (Ubuntu)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y cmake g++ zlib1g-dev libjpeg-turbo8-dev
+        run: sudo apt-get update && sudo apt-get install -y cmake g++ zlib1g-dev nasm
 
       - name: Install system dependencies (Windows)
         if: runner.os == 'Windows'
-        run: vcpkg install zlib libjpeg-turbo --triplet x64-windows-static
+        run: vcpkg install zlib --triplet x64-windows-static
         env:
           VCPKG_ROOT: C:\vcpkg
 
@@ -76,15 +76,18 @@ jobs:
 
       - name: Install system dependencies (Ubuntu)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y cmake g++ zlib1g-dev libjpeg-turbo8-dev
+        run: sudo apt-get update && sudo apt-get install -y cmake g++ zlib1g-dev nasm
 
       - name: Install system dependencies (Windows)
         if: runner.os == 'Windows'
-        run: vcpkg install zlib libjpeg-turbo --triplet ${{ matrix.arch }}-windows-static
+        run: vcpkg install zlib --triplet ${{ matrix.arch }}-windows-static
         env:
           VCPKG_ROOT: C:\vcpkg
 
       - run: npm ci --ignore-scripts
+
+      - name: Build mozjpeg
+        run: node scripts/download-mozjpeg.mjs
 
       - name: Build QPDF
         run: node scripts/download-qpdf.mjs
@@ -153,11 +156,12 @@ jobs:
             ${{ matrix.image }} \
             sh -c "
               if command -v apk > /dev/null; then
-                apk add --no-cache cmake g++ make zlib-dev libjpeg-turbo-dev python3 linux-headers
+                apk add --no-cache cmake g++ make zlib-dev nasm python3 linux-headers
               else
-                apt-get update && apt-get install -y cmake g++ zlib1g-dev libjpeg62-turbo-dev python3 make
+                apt-get update && apt-get install -y cmake g++ zlib1g-dev nasm python3 make
               fi &&
               npm ci --ignore-scripts &&
+              node scripts/download-mozjpeg.mjs &&
               node scripts/download-qpdf.mjs &&
               npx node-gyp rebuild &&
               node scripts/bundle-lib.mjs &&

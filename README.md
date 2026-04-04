@@ -58,7 +58,7 @@ const smaller = await compress(pdfBuffer, { lossy: true });
 | Integration               | Native Node.js addon  | Shell exec        | Shell exec        |
 | Async I/O                 | ✅ Non-blocking       | ❌ Blocks on exec | ❌ Blocks on exec |
 | Image deduplication       | ✅                    | ❌                | ❌                |
-| JPEG Huffman optimization | ✅ Lossless (libjpeg) | ❌                | ❌                |
+| JPEG Huffman optimization | ✅ Lossless (mozjpeg) | ❌                | ❌                |
 | Lossy image compression   | ✅ Auto quality       | ❌                | ✅                |
 | CMYK → RGB conversion     | ✅ Automatic          | ❌                | ✅                |
 | DPI downscaling           | ✅ Lossy mode         | ❌                | ✅                |
@@ -91,20 +91,20 @@ Prebuilt binaries are available for all [supported platforms](#-supported-platfo
 - CMake ≥ 3.16
 - C++20 compiler (GCC 10+, Clang 13+, MSVC 2019+)
 - zlib development headers
-- libjpeg-turbo (or libjpeg) development headers
+- nasm (optional, for mozjpeg SIMD acceleration)
 
 ```bash
 # macOS
-brew install cmake jpeg-turbo
+brew install cmake nasm
 
 # Ubuntu / Debian
-sudo apt install cmake g++ zlib1g-dev libjpeg-turbo8-dev
+sudo apt install cmake g++ zlib1g-dev nasm
 
 # Amazon Linux / RHEL
-sudo yum install cmake3 gcc-c++ zlib-devel libjpeg-turbo-devel
+sudo yum install cmake3 gcc-c++ zlib-devel nasm
 
 # Windows (using vcpkg)
-vcpkg install zlib libjpeg-turbo --triplet x64-windows-static
+vcpkg install zlib --triplet x64-windows-static
 ```
 
 ## 🌍 Supported Platforms
@@ -209,7 +209,7 @@ concurrency(0); // reset to default
 
 ## ⚙️ How it works
 
-This package embeds [QPDF](https://github.com/qpdf/qpdf) (v12.3.2) as a statically linked C++ library, exposed to Node.js via N-API. Lossless JPEG optimization uses [libjpeg-turbo](https://libjpeg-turbo.org/) at the DCT coefficient level. Image recompression in lossy mode also uses libjpeg-turbo for JPEG encoding. TrueType font subsetting is handled by a custom binary parser that reads cmap tables, resolves composite glyph dependencies, and rebuilds glyf/loca/hmtx tables with only the used glyphs.
+This package embeds [QPDF](https://github.com/qpdf/qpdf) (v12.3.2) and [mozjpeg](https://github.com/mozilla/mozjpeg) (v4.1.1) as statically linked C++ libraries, exposed to Node.js via N-API. Lossless JPEG optimization uses mozjpeg at the DCT coefficient level with progressive scan optimization. Image recompression in lossy mode uses mozjpeg's trellis quantization for 5–15% smaller JPEGs at the same perceptual quality. TrueType font subsetting is handled by a custom binary parser that reads cmap tables, resolves composite glyph dependencies, and rebuilds glyf/loca/hmtx tables with only the used glyphs.
 
 All operations run in a background thread via `Napi::AsyncWorker`, so the event loop is never blocked.
 

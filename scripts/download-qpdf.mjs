@@ -88,24 +88,22 @@ if (process.platform === 'linux') {
   cmakeArgs.push('-DCMAKE_C_FLAGS=-fPIC', '-DCMAKE_CXX_FLAGS=-fPIC');
 }
 
-// on macOS, help CMake find Homebrew libjpeg-turbo
-if (process.platform === 'darwin') {
-  const brewPrefixes = ['/opt/homebrew', '/usr/local'];
-  for (const prefix of brewPrefixes) {
-    const jpegDir = join(prefix, 'opt', 'jpeg-turbo');
-    if (existsSync(jpegDir)) {
-      cmakeArgs.push(`-DCMAKE_PREFIX_PATH=${jpegDir}`);
-      break;
-    }
-    const jpegDir2 = join(prefix, 'opt', 'jpeg');
-    if (existsSync(jpegDir2)) {
-      cmakeArgs.push(`-DCMAKE_PREFIX_PATH=${jpegDir2}`);
-      break;
-    }
-  }
+// point QPDF at vendored mozjpeg
+const mozjpegDir = join(root, 'deps', 'mozjpeg');
+if (existsSync(join(mozjpegDir, 'include', 'jpeglib.h'))) {
+  // try lib/ then lib64/ (some CMake installs use lib64 on Linux)
+  const libDir = existsSync(join(mozjpegDir, 'lib')) ? 'lib' : 'lib64';
+  const libExt = process.platform === 'win32' ? 'jpeg-static.lib' : 'libjpeg.a';
+  cmakeArgs.push(
+    `-DJPEG_INCLUDE_DIR=${join(mozjpegDir, 'include')}`,
+    `-DJPEG_LIBRARY=${join(mozjpegDir, libDir, libExt)}`,
+  );
+} else {
+  console.error('mozjpeg not found — run "node scripts/download-mozjpeg.mjs" first');
+  process.exit(1);
 }
 
-// on Windows, use vcpkg for zlib and libjpeg-turbo
+// on Windows, use vcpkg for zlib (mozjpeg is vendored separately)
 if (process.platform === 'win32') {
   const vcpkgRoot = process.env.VCPKG_ROOT || join(process.env.GITHUB_WORKSPACE || '', 'vcpkg');
   if (existsSync(join(vcpkgRoot, 'scripts', 'buildsystems', 'vcpkg.cmake'))) {
@@ -170,7 +168,7 @@ if (staticLibs.length === 0) {
   }
 }
 
-// step 4: on Windows, copy vcpkg zlib/jpeg static libs and headers for binding.gyp
+// step 4: on Windows, copy vcpkg zlib static lib and headers for binding.gyp
 if (process.platform === 'win32') {
   const triplet = process.env.VCPKG_TARGET_TRIPLET || `${process.arch}-windows-static`;
   const vcpkgRoot = process.env.VCPKG_ROOT || '';
@@ -180,26 +178,14 @@ if (process.platform === 'win32') {
     join(buildDir, 'vcpkg_installed', triplet, 'lib'),
     join(vcpkgRoot, 'installed', triplet, 'lib'),
   ];
-  const candidateIncludeDirs = [
-    join(buildDir, 'vcpkg_installed', triplet, 'include'),
-    join(vcpkgRoot, 'installed', triplet, 'include'),
-  ];
 
   const vcpkgLibDir = candidateLibDirs.find((d) => existsSync(d));
   if (vcpkgLibDir) {
-    for (const lib of ['zlib.lib', 'jpeg.lib', 'turbojpeg.lib']) {
-      const src = join(vcpkgLibDir, lib);
-      if (existsSync(src)) {
-        cpSync(src, join(depsDir, 'lib', lib));
-        console.log(`Copied vcpkg ${lib}`);
-      }
+    const src = join(vcpkgLibDir, 'zlib.lib');
+    if (existsSync(src)) {
+      cpSync(src, join(depsDir, 'lib', 'zlib.lib'));
+      console.log('Copied vcpkg zlib.lib');
     }
-  }
-
-  const vcpkgIncludeDir = candidateIncludeDirs.find((d) => existsSync(d));
-  if (vcpkgIncludeDir) {
-    cpSync(vcpkgIncludeDir, join(depsDir, 'include'), { recursive: true, force: true });
-    console.log(`Copied vcpkg headers from ${vcpkgIncludeDir}`);
   }
 }
 

@@ -391,7 +391,7 @@ void optimizeImages(QPDF &qpdf, const CompressOptions &opts) {
         return;
     }
 
-    // encode as JPEG via libjpeg-turbo
+    // encode as JPEG via mozjpeg
     std::vector<uint8_t> jpegData;
     if (!encodeJpeg(pixels, width, height, encodeComponents, opts.targetQuality,
                     jpegData))

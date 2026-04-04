@@ -25,11 +25,11 @@ jobs:
 
       - name: Install system dependencies (Ubuntu)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y cmake g++ zlib1g-dev libjpeg-turbo8-dev
+        run: sudo apt-get update && sudo apt-get install -y cmake g++ zlib1g-dev nasm
 
       - name: Install system dependencies (Windows)
         if: runner.os == 'Windows'
-        run: vcpkg install zlib libjpeg-turbo --triplet x64-windows-static
+        run: vcpkg install zlib --triplet x64-windows-static
         env:
           VCPKG_ROOT: C:\vcpkg
 
@@ -37,8 +37,9 @@ jobs:
       - run: npm run format:check
       - run: npm run lint:check
 
-      - name: Build QPDF and native addon
+      - name: Build mozjpeg, QPDF, and native addon
         run: |
+          node scripts/download-mozjpeg.mjs
           node scripts/download-qpdf.mjs
           npx node-gyp rebuild
           node scripts/bundle-lib.mjs
