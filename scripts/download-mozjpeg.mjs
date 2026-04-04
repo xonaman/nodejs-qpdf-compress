@@ -100,8 +100,8 @@ if (process.platform === 'win32') {
   const triplet = process.env.VCPKG_TARGET_TRIPLET || '';
   if (triplet.startsWith('arm64')) {
     cmakeArgs.push('-A', 'ARM64');
-    // NASM only generates x86/x64 assembly — disable SIMD for ARM64
-    cmakeArgs.push('-DWITH_SIMD=OFF');
+    // force NEON intrinsics path instead of NASM (which only targets x86/x64)
+    cmakeArgs.push('-DCMAKE_SYSTEM_PROCESSOR=aarch64', '-DNEON_INTRINSICS=ON');
   }
 }
 
