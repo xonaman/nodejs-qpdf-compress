@@ -94,15 +94,23 @@ if (existsSync(join(mozjpegDir, 'include', 'jpeglib.h'))) {
   // try lib/ then lib64/ (some CMake installs use lib64 on Linux)
   const libDir = existsSync(join(mozjpegDir, 'lib')) ? 'lib' : 'lib64';
   const libExt = process.platform === 'win32' ? 'jpeg-static.lib' : 'libjpeg.a';
-  cmakeArgs.push(
-    `-DJPEG_INCLUDE_DIR=${join(mozjpegDir, 'include')}`,
-    `-DJPEG_LIBRARY=${join(mozjpegDir, libDir, libExt)}`,
-  );
-  // QPDF uses pkg_check_modules to find libjpeg — set PKG_CONFIG_PATH so
-  // pkg-config finds mozjpeg's libjpeg.pc instead of a system libjpeg
+
+  // QPDF uses pkg_check_modules first, then falls back to find_path/find_library
+  // with custom variable names LIBJPEG_H_PATH and LIBJPEG_LIB_PATH.
+
+  // 1) set PKG_CONFIG_PATH so pkg-config finds mozjpeg's libjpeg.pc (Linux/macOS)
   const pkgConfigDir = join(mozjpegDir, libDir, 'pkgconfig');
   const existing = process.env.PKG_CONFIG_PATH || '';
   process.env.PKG_CONFIG_PATH = existing ? `${pkgConfigDir}:${existing}` : pkgConfigDir;
+
+  // 2) set QPDF's cmake cache vars for the find_path/find_library fallback (Windows)
+  cmakeArgs.push(
+    `-DLIBJPEG_H_PATH:PATH=${join(mozjpegDir, 'include')}`,
+    `-DLIBJPEG_LIB_PATH:FILEPATH=${join(mozjpegDir, libDir, libExt)}`,
+  );
+
+  // 3) add mozjpeg to CMAKE_PREFIX_PATH as a belt-and-suspenders fallback
+  cmakeArgs.push(`-DCMAKE_PREFIX_PATH=${mozjpegDir}`);
 } else {
   console.error('mozjpeg not found — run "node scripts/download-mozjpeg.mjs" first');
   process.exit(1);
