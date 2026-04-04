@@ -98,6 +98,11 @@ if (existsSync(join(mozjpegDir, 'include', 'jpeglib.h'))) {
     `-DJPEG_INCLUDE_DIR=${join(mozjpegDir, 'include')}`,
     `-DJPEG_LIBRARY=${join(mozjpegDir, libDir, libExt)}`,
   );
+  // QPDF uses pkg_check_modules to find libjpeg — set PKG_CONFIG_PATH so
+  // pkg-config finds mozjpeg's libjpeg.pc instead of a system libjpeg
+  const pkgConfigDir = join(mozjpegDir, libDir, 'pkgconfig');
+  const existing = process.env.PKG_CONFIG_PATH || '';
+  process.env.PKG_CONFIG_PATH = existing ? `${pkgConfigDir}:${existing}` : pkgConfigDir;
 } else {
   console.error('mozjpeg not found — run "node scripts/download-mozjpeg.mjs" first');
   process.exit(1);
