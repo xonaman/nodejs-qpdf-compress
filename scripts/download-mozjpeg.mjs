@@ -77,6 +77,7 @@ const cmakeArgs = [
   '-DENABLE_SHARED=OFF',
   '-DPNG_SUPPORTED=OFF',
   '-DWITH_TURBOJPEG=OFF',
+  `-DCMAKE_INSTALL_LIBDIR=${join(depsDir, 'lib')}`,
   `-DCMAKE_INSTALL_PREFIX=${depsDir}`,
 ];
 
