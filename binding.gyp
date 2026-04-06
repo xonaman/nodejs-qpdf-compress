@@ -75,6 +75,7 @@
               "<(module_root_dir)/deps/qpdf/lib/libqpdf.a",
               "-lz",
               "<(module_root_dir)/deps/mozjpeg/lib/libjpeg.a",
+              "-static-libstdc++",
               "-flto",
               "-Wl,--gc-sections",
               "-Wl,-S",

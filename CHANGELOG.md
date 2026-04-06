@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.1] - 2026-04-06
+
+### Fixed
+
+- Statically link libstdc++ on Linux to fix `GLIBCXX_3.4.31 not found` errors on systems with older GCC
+
 ## [0.6.0] - 2026-04-04
 
 ### Changed
