@@ -71,6 +71,7 @@ protected:
     try {
       QPDF qpdf;
       qpdf.setAttemptRecovery(true);
+      qpdf.setSuppressWarnings(true);
 
       if (useFile_) {
         if (!std::filesystem::exists(filePath_)) {
