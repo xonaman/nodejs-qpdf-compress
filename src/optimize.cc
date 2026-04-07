@@ -69,6 +69,7 @@ void removeUnusedFonts(QPDF &qpdf) {
       continue;
 
     // collect all font names referenced in this page's content stream(s)
+    // and any Form XObjects that may inherit page fonts
     std::set<std::string> usedFonts;
 
     try {
@@ -88,6 +89,34 @@ void removeUnusedFonts(QPDF &qpdf) {
             contentStr.append(reinterpret_cast<const char *>(buf->getBuffer()),
                               buf->getSize());
             contentStr += '\n';
+          }
+        }
+      }
+
+      // also scan Form XObjects that lack their own /Font resources,
+      // since they inherit fonts from the page
+      auto xobjects = resources.getKey("/XObject");
+      if (xobjects.isDictionary()) {
+        for (auto &xobjKey : xobjects.getKeys()) {
+          auto xobj = xobjects.getKey(xobjKey);
+          if (!xobj.isStream())
+            continue;
+          auto xobjDict = xobj.getDict();
+          auto xobjSubtype = xobjDict.getKey("/Subtype");
+          if (!xobjSubtype.isName() || xobjSubtype.getName() != "/Form")
+            continue;
+
+          // skip XObjects that define their own font resources
+          auto xobjRes = xobjDict.getKey("/Resources");
+          if (xobjRes.isDictionary() && xobjRes.getKey("/Font").isDictionary())
+            continue;
+
+          try {
+            auto buf = xobj.getStreamData(qpdf_dl_generalized);
+            contentStr.append(reinterpret_cast<const char *>(buf->getBuffer()),
+                              buf->getSize());
+            contentStr += '\n';
+          } catch (...) {
           }
         }
       }
@@ -411,6 +440,30 @@ void subsetFonts(QPDF &qpdf) {
             contentStr.append(reinterpret_cast<const char *>(buf->getBuffer()),
                               buf->getSize());
             contentStr += '\n';
+          }
+        }
+      }
+
+      // also include Form XObjects that inherit page fonts
+      auto xobjects = resources.getKey("/XObject");
+      if (xobjects.isDictionary()) {
+        for (auto &xobjKey : xobjects.getKeys()) {
+          auto xobj = xobjects.getKey(xobjKey);
+          if (!xobj.isStream())
+            continue;
+          auto xobjDict = xobj.getDict();
+          auto xobjSubtype = xobjDict.getKey("/Subtype");
+          if (!xobjSubtype.isName() || xobjSubtype.getName() != "/Form")
+            continue;
+          auto xobjRes = xobjDict.getKey("/Resources");
+          if (xobjRes.isDictionary() && xobjRes.getKey("/Font").isDictionary())
+            continue;
+          try {
+            auto buf = xobj.getStreamData(qpdf_dl_generalized);
+            contentStr.append(reinterpret_cast<const char *>(buf->getBuffer()),
+                              buf->getSize());
+            contentStr += '\n';
+          } catch (...) {
           }
         }
       }
