@@ -1,6 +1,7 @@
 #include "fonts.h"
 #include "font_subset.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <map>
 #include <set>
