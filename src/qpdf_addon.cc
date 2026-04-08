@@ -62,10 +62,6 @@ static std::shared_ptr<std::atomic<bool>> GetEnvAlive(Napi::Env env) {
   return data ? data->envAlive : nullptr;
 }
 
-#define CHECK_ENV()                                                            \
-  if (envAlive_ && !envAlive_->load())                                         \
-    return;
-
 // ---------------------------------------------------------------------------
 // CompressWorker — async PDF compression
 // ---------------------------------------------------------------------------
@@ -89,6 +85,26 @@ public:
         outputPath_(std::move(outputPath)) {}
 
   Napi::Promise Promise() { return deferred_.Promise(); }
+
+  // guard against worker-thread teardown: if the env is being destroyed
+  // (e.g. worker.terminate()), skip all V8 API calls — the JS promise will
+  // never settle, but there is no listener for the result anyway.
+  void OnWorkComplete(Napi::Env env, napi_status status) override {
+    if (envAlive_ && !envAlive_->load())
+      return;
+
+    // probe whether V8 is still accessible (raw C call, no throw on failure)
+    napi_handle_scope scope = nullptr;
+    if (napi_open_handle_scope(env, &scope) != napi_ok)
+      return;
+    napi_close_handle_scope(env, scope);
+
+    try {
+      Napi::AsyncWorker::OnWorkComplete(env, status);
+    } catch (const Napi::Error &) {
+      // env tore down between probe and base class call
+    }
+  }
 
 protected:
   void Execute() override {
@@ -194,7 +210,6 @@ protected:
   }
 
   void OnOK() override {
-    CHECK_ENV();
     if (outputPath_.empty()) {
       deferred_.Resolve(
           Napi::Buffer<uint8_t>::Copy(Env(), result_.data(), result_.size()));
@@ -204,7 +219,6 @@ protected:
   }
 
   void OnError(Napi::Error const &error) override {
-    CHECK_ENV();
     deferred_.Reject(error.Value());
   }
 
