@@ -207,9 +207,6 @@ std::set<uint16_t> mapCodesToGlyphIds(const uint8_t *data, size_t size,
 
 #include <hb-subset.h>
 #include <hb.h>
-#include <mutex>
-
-static std::mutex hb_mutex;
 
 bool subsetFont(const uint8_t *data, size_t size,
                 const std::set<uint16_t> &usedGlyphIds,
@@ -222,9 +219,6 @@ bool subsetFont(const uint8_t *data, size_t size,
   if (sfVersion != 0x00010000 && sfVersion != 0x74727565 &&
       sfVersion != 0x4F54544F) // OTTO
     return false;
-
-  // serialize all HarfBuzz operations — hb-subset is not fully thread-safe
-  std::lock_guard<std::mutex> lock(hb_mutex);
 
   // let HarfBuzz own a copy of the font data to avoid any lifetime issues
   hb_blob_t *blob = hb_blob_create(reinterpret_cast<const char *>(data), size,

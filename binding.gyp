@@ -26,7 +26,7 @@
         "-fno-exceptions"
       ],
       "cflags": [
-        "-Os",
+        "-Oz",
         "-flto",
         "-ffunction-sections",
         "-fdata-sections"
@@ -35,7 +35,7 @@
         "-fno-exceptions"
       ],
       "cflags_cc": [
-        "-std=c++20",
+        "-std=c++17",
         "-fvisibility=hidden"
       ],
       "conditions": [
@@ -49,12 +49,12 @@
             ],
             "xcode_settings": {
               "GCC_ENABLE_CPP_EXCEPTIONS": "YES",
-              "CLANG_CXX_LANGUAGE_STANDARD": "c++20",
+              "CLANG_CXX_LANGUAGE_STANDARD": "c++17",
               "GCC_SYMBOLS_PRIVATE_EXTERN": "YES",
               "DEAD_CODE_STRIPPING": "YES",
               "LLVM_LTO": "YES",
               "OTHER_CPLUSPLUSFLAGS": [
-                "-Os",
+                "-Oz",
                 "-flto",
                 "-ffunction-sections",
                 "-fdata-sections"
@@ -106,7 +106,7 @@
                 "WholeProgramOptimization": "true",
                 "RuntimeLibrary": 0,
                 "AdditionalOptions": [
-                  "/std:c++20"
+                  "/std:c++17"
                 ]
               },
               "VCLinkerTool": {

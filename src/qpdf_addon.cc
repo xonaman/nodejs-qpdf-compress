@@ -5,9 +5,14 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <filesystem>
-#include <memory>
 #include <string>
+#ifdef _WIN32
+#include <io.h>
+#define F_OK 0
+#define access _access
+#else
+#include <unistd.h>
+#endif
 #include <vector>
 
 #include <qpdf/Pl_Flate.hh>
@@ -24,22 +29,24 @@
 
 static std::string writeToFile(const std::string &path, const uint8_t *data,
                                size_t size) {
-  auto closer = [](FILE *fp) {
-    if (fp)
-      fclose(fp);
-  };
-  std::unique_ptr<FILE, decltype(closer)> f(fopen(path.c_str(), "wb"), closer);
+  FILE *f = fopen(path.c_str(), "wb");
   if (!f) {
-    auto parentDir = std::filesystem::path(path).parent_path();
-    if (!parentDir.empty() && !std::filesystem::is_directory(parentDir))
-      return "Parent directory does not exist: " + parentDir.string();
+    auto slash = path.rfind('/');
+    if (slash != std::string::npos) {
+      auto parentDir = path.substr(0, slash);
+      if (access(parentDir.c_str(), F_OK) != 0)
+        return "Parent directory does not exist: " + parentDir;
+    }
     return "Failed to open output file: " + path + " (" +
            std::string(std::strerror(errno)) + ")";
   }
-  if (fwrite(data, 1, size, f.get()) != size)
+  size_t written = fwrite(data, 1, size, f);
+  int flushErr = fflush(f);
+  fclose(f);
+  if (written != size)
     return "Failed to write output file: " + path + " (" +
            std::string(std::strerror(errno)) + ")";
-  if (fflush(f.get()) != 0)
+  if (flushErr != 0)
     return "Failed to flush output file: " + path + " (" +
            std::string(std::strerror(errno)) + ")";
   return {};
@@ -114,21 +121,19 @@ protected:
       qpdf.setSuppressWarnings(true);
 
       if (useFile_) {
-        if (!std::filesystem::exists(filePath_)) {
+        if (access(filePath_.c_str(), F_OK) != 0) {
           SetError("Input file not found: " + filePath_);
           return;
         }
         // validate PDF header to prevent QPDF from aborting on garbage input
         {
-          auto closer = [](FILE *fp) {
-            if (fp)
-              fclose(fp);
-          };
-          std::unique_ptr<FILE, decltype(closer)> f(
-              fopen(filePath_.c_str(), "rb"), closer);
+          FILE *f = fopen(filePath_.c_str(), "rb");
           if (f) {
             char hdr[5] = {};
-            if (fread(hdr, 1, 5, f.get()) < 5 || memcmp(hdr, "%PDF-", 5) != 0) {
+            bool valid =
+                fread(hdr, 1, 5, f) >= 5 && memcmp(hdr, "%PDF-", 5) == 0;
+            fclose(f);
+            if (!valid) {
               SetError("Input is not a valid PDF (missing %PDF- header)");
               return;
             }
