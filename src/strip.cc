@@ -202,3 +202,208 @@ void stripJavaScript(QPDF &qpdf) {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Document overhead stripping — remove structural and navigational data
+// that does not affect visual rendering
+// ---------------------------------------------------------------------------
+
+void stripDocumentOverhead(QPDF &qpdf) {
+  auto root = qpdf.getRoot();
+
+  // remove structure tree (tagged PDF accessibility info)
+  if (root.hasKey("/StructTreeRoot"))
+    root.removeKey("/StructTreeRoot");
+
+  // remove bookmarks/outlines
+  if (root.hasKey("/Outlines"))
+    root.removeKey("/Outlines");
+
+  // remove output intents (PDF/A color management metadata)
+  if (root.hasKey("/OutputIntents"))
+    root.removeKey("/OutputIntents");
+
+  // remove viewer preferences
+  if (root.hasKey("/ViewerPreferences"))
+    root.removeKey("/ViewerPreferences");
+
+  // remove article threads
+  if (root.hasKey("/Threads"))
+    root.removeKey("/Threads");
+
+  // remove web capture info
+  if (root.hasKey("/SpiderInfo"))
+    root.removeKey("/SpiderInfo");
+
+  // remove page display mode (single page, outlines, etc.)
+  if (root.hasKey("/PageMode"))
+    root.removeKey("/PageMode");
+
+  // remove page layout preference
+  if (root.hasKey("/PageLayout"))
+    root.removeKey("/PageLayout");
+
+  // remove named destinations
+  if (root.hasKey("/Dests"))
+    root.removeKey("/Dests");
+
+  // remove page-level structure keys and obsolete /ProcSet
+  for (auto &page : QPDFPageDocumentHelper(qpdf).getAllPages()) {
+    auto pageObj = page.getObjectHandle();
+
+    // structure tree references
+    if (pageObj.hasKey("/StructParents"))
+      pageObj.removeKey("/StructParents");
+    if (pageObj.hasKey("/StructParent"))
+      pageObj.removeKey("/StructParent");
+
+    // tab order (tied to structure tree)
+    if (pageObj.hasKey("/Tabs"))
+      pageObj.removeKey("/Tabs");
+
+    // presentation steps
+    if (pageObj.hasKey("/PresSteps"))
+      pageObj.removeKey("/PresSteps");
+
+    // remove /ProcSet from resources (obsolete since PDF 1.4)
+    auto resources = pageObj.getKey("/Resources");
+    if (resources.isDictionary() && resources.hasKey("/ProcSet"))
+      resources.removeKey("/ProcSet");
+  }
+
+  // remove /Metadata from non-root objects (XObjects, fonts, etc.)
+  // root /Metadata is handled separately by stripMetadata()
+  for (auto &obj : qpdf.getAllObjects()) {
+    if (!obj.isDictionary())
+      continue;
+    if (!obj.hasKey("/Metadata"))
+      continue;
+    // skip the document catalog itself
+    if (obj.getObjGen() == root.getObjGen())
+      continue;
+    obj.removeKey("/Metadata");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Unused resource removal — remove XObject, ExtGState, ColorSpace, Pattern,
+// Shading, and Properties entries not referenced by any content stream
+// ---------------------------------------------------------------------------
+
+class ResourceCollector : public QPDFObjectHandle::ParserCallbacks {
+public:
+  std::set<std::string> usedNames;
+
+  void handleObject(QPDFObjectHandle obj) override {
+    if (obj.isOperator()) {
+      std::string op = obj.getOperatorValue();
+
+      // Do (XObject), gs (ExtGState), sh (Shading)
+      if ((op == "Do" || op == "gs" || op == "sh") && !operands.empty() &&
+          operands.back().isName())
+        usedNames.insert(operands.back().getName());
+
+      // cs/CS (set color space)
+      if ((op == "cs" || op == "CS") && !operands.empty() &&
+          operands.back().isName())
+        usedNames.insert(operands.back().getName());
+
+      // scn/SCN (set color with pattern)
+      if (op == "scn" || op == "SCN") {
+        for (auto &operand : operands) {
+          if (operand.isName())
+            usedNames.insert(operand.getName());
+        }
+      }
+
+      // Tf (font — for completeness, though fonts are handled separately)
+      if (op == "Tf" && operands.size() >= 2 &&
+          operands[operands.size() - 2].isName())
+        usedNames.insert(operands[operands.size() - 2].getName());
+
+      // BDC (marked content with properties)
+      if (op == "BDC") {
+        for (auto &operand : operands) {
+          if (operand.isName())
+            usedNames.insert(operand.getName());
+        }
+      }
+
+      operands.clear();
+    } else {
+      operands.push_back(obj);
+    }
+  }
+  void handleEOF() override {}
+
+private:
+  std::vector<QPDFObjectHandle> operands;
+};
+
+void removeUnusedResources(QPDF &qpdf) {
+  for (auto &page : QPDFPageDocumentHelper(qpdf).getAllPages()) {
+    auto pageObj = page.getObjectHandle();
+    auto resources = pageObj.getKey("/Resources");
+    if (!resources.isDictionary())
+      continue;
+
+    // collect all resource names used in content streams
+    ResourceCollector collector;
+
+    // scan page content
+    try {
+      auto contents = pageObj.getKey("/Contents");
+      QPDFObjectHandle::parseContentStream(contents, &collector);
+    } catch (...) {
+      continue;
+    }
+
+    // scan Form XObjects
+    auto xobjects = resources.getKey("/XObject");
+    if (xobjects.isDictionary()) {
+      for (auto &key : xobjects.getKeys()) {
+        auto xobj = xobjects.getKey(key);
+        if (!xobj.isStream())
+          continue;
+        auto xobjDict = xobj.getDict();
+        auto st = xobjDict.getKey("/Subtype");
+        if (!st.isName() || st.getName() != "/Form")
+          continue;
+        try {
+          QPDFObjectHandle::parseContentStream(xobj, &collector);
+        } catch (...) {
+        }
+      }
+    }
+
+    // remove unused entries from resource categories
+    static const char *categories[] = {"/ExtGState", "/ColorSpace", "/Pattern",
+                                       "/Shading", "/Properties"};
+
+    for (auto category : categories) {
+      auto dict = resources.getKey(category);
+      if (!dict.isDictionary())
+        continue;
+
+      auto keys = dict.getKeys();
+      for (auto &key : keys) {
+        if (collector.usedNames.find(key) == collector.usedNames.end())
+          dict.removeKey(key);
+      }
+
+      if (dict.getKeys().empty())
+        resources.removeKey(category);
+    }
+
+    // remove unused XObjects
+    if (xobjects.isDictionary()) {
+      auto keys = xobjects.getKeys();
+      for (auto &key : keys) {
+        if (collector.usedNames.find(key) == collector.usedNames.end())
+          xobjects.removeKey(key);
+      }
+      if (xobjects.getKeys().empty())
+        resources.removeKey("/XObject");
+    }
+  }
+}

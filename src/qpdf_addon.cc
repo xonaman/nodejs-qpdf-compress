@@ -135,6 +135,7 @@ protected:
       convertGrayscaleImages(qpdf);
       convertBitonalImages(qpdf);
       flattenPageTree(qpdf);
+      stripDocumentOverhead(qpdf);
 
       if (lossy_) {
         // lossy: re-encode high-quality JPEGs at lower quality
@@ -152,6 +153,7 @@ protected:
       subsetFonts(qpdf);
       stripIccProfiles(qpdf);
       flattenForms(qpdf);
+      removeUnusedResources(qpdf);
       coalesceContentStreams(qpdf);
       minifyContentStreams(qpdf);
       deduplicateStreams(qpdf);

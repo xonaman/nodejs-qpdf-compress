@@ -202,7 +202,7 @@ std::set<uint16_t> mapCodesToGlyphIds(const uint8_t *data, size_t size,
 }
 
 // ---------------------------------------------------------------------------
-// TrueType font subsetting using HarfBuzz hb-subset
+// Font subsetting using HarfBuzz hb-subset (TrueType and CFF/OpenType)
 // ---------------------------------------------------------------------------
 
 #include <hb-subset.h>
@@ -211,14 +211,16 @@ std::set<uint16_t> mapCodesToGlyphIds(const uint8_t *data, size_t size,
 
 static std::mutex hb_mutex;
 
-bool subsetTrueTypeFont(const uint8_t *data, size_t size,
-                        const std::set<uint16_t> &usedGlyphIds,
-                        std::vector<uint8_t> &output) {
-  // validate TrueType header — skip OpenType-CFF ("OTTO") or invalid fonts
+bool subsetFont(const uint8_t *data, size_t size,
+                const std::set<uint16_t> &usedGlyphIds,
+                std::vector<uint8_t> &output, bool preserveCmap) {
+  // validate font header — accept TrueType (0x00010000, 'true') and
+  // OpenType-CFF ('OTTO')
   if (size < 12)
     return false;
   uint32_t sfVersion = readU32(data);
-  if (sfVersion != 0x00010000 && sfVersion != 0x74727565)
+  if (sfVersion != 0x00010000 && sfVersion != 0x74727565 &&
+      sfVersion != 0x4F54544F) // OTTO
     return false;
 
   // serialize all HarfBuzz operations — hb-subset is not fully thread-safe
@@ -245,11 +247,30 @@ bool subsetTrueTypeFont(const uint8_t *data, size_t size,
   // valid — unused glyph slots are zeroed out
   hb_subset_input_set_flags(input, HB_SUBSET_FLAGS_RETAIN_GIDS);
 
-  // preserve the cmap table unchanged — PDF viewers use it to resolve
-  // character codes to glyph IDs for simple TrueType fonts
-  hb_set_t *noSubsetTables =
-      hb_subset_input_set(input, HB_SUBSET_SETS_NO_SUBSET_TABLE_TAG);
-  hb_set_add(noSubsetTables, HB_TAG('c', 'm', 'a', 'p'));
+  // drop font tables unnecessary for PDF rendering
+  hb_set_t *dropTables =
+      hb_subset_input_set(input, HB_SUBSET_SETS_DROP_TABLE_TAG);
+  hb_set_add(dropTables, HB_TAG('G', 'P', 'O', 'S')); // OpenType positioning
+  hb_set_add(dropTables, HB_TAG('G', 'S', 'U', 'B')); // OpenType substitution
+  hb_set_add(dropTables, HB_TAG('G', 'D', 'E', 'F')); // OpenType definitions
+  hb_set_add(dropTables, HB_TAG('D', 'S', 'I', 'G')); // digital signature
+  hb_set_add(dropTables, HB_TAG('k', 'e', 'r', 'n')); // legacy kerning
+  hb_set_add(dropTables, HB_TAG('n', 'a', 'm', 'e')); // font naming strings
+  hb_set_add(dropTables, HB_TAG('g', 'a', 's', 'p')); // grid-fitting hints
+  hb_set_add(dropTables,
+             HB_TAG('h', 'd', 'm', 'x')); // horizontal device metrics
+  hb_set_add(dropTables, HB_TAG('L', 'T', 'S', 'H')); // linear threshold
+  hb_set_add(dropTables, HB_TAG('V', 'D', 'M', 'X')); // device metrics
+
+  // preserve the cmap table unchanged for simple TrueType fonts —
+  // PDF viewers use it to resolve character codes to glyph IDs.
+  // for CID fonts, PDF viewers use /CIDToGIDMap instead, so the cmap
+  // can be freely subset.
+  if (preserveCmap) {
+    hb_set_t *noSubsetTables =
+        hb_subset_input_set(input, HB_SUBSET_SETS_NO_SUBSET_TABLE_TAG);
+    hb_set_add(noSubsetTables, HB_TAG('c', 'm', 'a', 'p'));
+  }
 
   // populate the glyph set to keep
   hb_set_t *glyphs = hb_subset_input_glyph_set(input);

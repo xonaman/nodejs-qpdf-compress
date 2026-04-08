@@ -310,7 +310,7 @@ void subsetFonts(QPDF &qpdf) {
     }
   }
 
-  // true font subsetting: strip unused glyph outlines from TrueType fonts
+  // true font subsetting: strip unused glyph outlines from embedded fonts
   std::set<QPDFObjGen> processedFonts;
   std::set<QPDFObjGen> processedFontFiles;
   for (auto &[og, usedCodes] : fontUsedCodes) {
@@ -325,7 +325,8 @@ void subsetFonts(QPDF &qpdf) {
     auto subtype = fontObj.getKey("/Subtype");
     if (!subtype.isName())
       continue;
-    // Type0 composite fonts — subset CIDFontType2 descendants
+    // Type0 composite fonts — subset CIDFontType2 and CIDFontType0
+    // descendants
     if (subtype.getName() == "/Type0") {
       auto descendants = fontObj.getKey("/DescendantFonts");
       if (!descendants.isArray() || descendants.getArrayNItems() < 1)
@@ -336,25 +337,34 @@ void subsetFonts(QPDF &qpdf) {
         continue;
 
       auto cidSubtype = cidFont.getKey("/Subtype");
-      if (!cidSubtype.isName() || cidSubtype.getName() != "/CIDFontType2")
+      if (!cidSubtype.isName())
         continue;
 
-      // only handle Identity CIDToGIDMap — CID values map directly to
-      // glyph IDs, so the codes collected by FontCodeCollector are already
-      // the glyph IDs we need for HarfBuzz
-      auto cidToGid = cidFont.getKey("/CIDToGIDMap");
-      if (!cidToGid.isName() || cidToGid.getName() != "/Identity")
+      bool isCIDFontType2 = cidSubtype.getName() == "/CIDFontType2";
+      bool isCIDFontType0 = cidSubtype.getName() == "/CIDFontType0";
+      if (!isCIDFontType2 && !isCIDFontType0)
         continue;
 
       auto cidDescriptor = cidFont.getKey("/FontDescriptor");
-      if (!cidDescriptor.isDictionary() || !cidDescriptor.hasKey("/FontFile2"))
+      if (!cidDescriptor.isDictionary())
         continue;
 
-      auto fontFile = cidDescriptor.getKey("/FontFile2");
+      // determine which font file key to use:
+      // CIDFontType2 → /FontFile2 (TrueType)
+      // CIDFontType0 → /FontFile3 (CFF)
+      std::string fontFileKey;
+      if (isCIDFontType2 && cidDescriptor.hasKey("/FontFile2"))
+        fontFileKey = "/FontFile2";
+      else if (isCIDFontType0 && cidDescriptor.hasKey("/FontFile3"))
+        fontFileKey = "/FontFile3";
+      else
+        continue;
+
+      auto fontFile = cidDescriptor.getKey(fontFileKey);
       if (!fontFile.isStream())
         continue;
 
-      // skip if this FontFile2 was already subset by another font object
+      // skip if this font file was already subset by another font object
       auto ffOg = fontFile.getObjGen();
       if (processedFontFiles.count(ffOg))
         continue;
@@ -362,25 +372,48 @@ void subsetFonts(QPDF &qpdf) {
 
       try {
         auto fontData = fontFile.getStreamData(qpdf_dl_all);
-        const uint8_t *ttfData = fontData->getBuffer();
-        size_t ttfSize = fontData->getSize();
+        const uint8_t *rawData = fontData->getBuffer();
+        size_t rawSize = fontData->getSize();
 
-        // CID codes = glyph IDs for Identity CIDToGIDMap
-        std::set<uint16_t> glyphIds = usedCodes;
+        std::set<uint16_t> glyphIds;
+
+        auto cidToGid = cidFont.getKey("/CIDToGIDMap");
+        if (cidToGid.isName() && cidToGid.getName() == "/Identity") {
+          // Identity mapping — CID codes map directly to glyph IDs
+          glyphIds = usedCodes;
+        } else if (cidToGid.isStream()) {
+          // explicit CIDToGIDMap stream — array of 2-byte big-endian GIDs
+          // indexed by CID
+          auto mapData = cidToGid.getStreamData(qpdf_dl_all);
+          const uint8_t *mapBuf = mapData->getBuffer();
+          size_t mapSize = mapData->getSize();
+          for (uint16_t cid : usedCodes) {
+            size_t offset = static_cast<size_t>(cid) * 2;
+            if (offset + 2 <= mapSize) {
+              uint16_t gid = static_cast<uint16_t>((mapBuf[offset] << 8) |
+                                                   mapBuf[offset + 1]);
+              if (gid != 0)
+                glyphIds.insert(gid);
+            }
+          }
+        } else if (isCIDFontType0) {
+          // CIDFontType0 without explicit mapping — CID = GID
+          glyphIds = usedCodes;
+        } else {
+          continue;
+        }
+
         glyphIds.insert(0); // always keep .notdef
 
-        if (glyphIds.size() >= 200)
+        std::vector<uint8_t> subsetResult;
+        if (!subsetFont(rawData, rawSize, glyphIds, subsetResult, false))
           continue;
 
-        std::vector<uint8_t> subsetFont;
-        if (!subsetTrueTypeFont(ttfData, ttfSize, glyphIds, subsetFont))
+        if (subsetResult.size() >= rawSize)
           continue;
 
-        if (subsetFont.size() >= ttfSize)
-          continue;
-
-        std::string fontStr(reinterpret_cast<char *>(subsetFont.data()),
-                            subsetFont.size());
+        std::string fontStr(reinterpret_cast<char *>(subsetResult.data()),
+                            subsetResult.size());
         fontFile.replaceStreamData(fontStr, QPDFObjectHandle::newNull(),
                                    QPDFObjectHandle::newNull());
       } catch (...) {
@@ -389,15 +422,8 @@ void subsetFonts(QPDF &qpdf) {
       continue;
     }
 
-    // simple TrueType fonts — subset via cmap lookup
+    // simple TrueType fonts
     if (subtype.getName() != "/TrueType")
-      continue;
-
-    // skip fonts with /Encoding /Differences — the cmap-based glyph ID
-    // lookup doesn't account for character code remapping via /Differences,
-    // which would cause the wrong glyphs to be retained
-    auto encoding = fontObj.getKey("/Encoding");
-    if (encoding.isDictionary() && encoding.hasKey("/Differences"))
       continue;
 
     auto descriptor = fontObj.getKey("/FontDescriptor");
@@ -419,26 +445,161 @@ void subsetFonts(QPDF &qpdf) {
       const uint8_t *ttfData = fontData->getBuffer();
       size_t ttfSize = fontData->getSize();
 
-      // map character codes → glyph IDs via cmap
-      auto glyphIds = mapCodesToGlyphIds(ttfData, ttfSize, usedCodes);
+      std::set<uint16_t> glyphIds;
 
-      if (glyphIds.size() >= 200)
-        continue;
+      // check for /Encoding with /Differences — build a custom char code
+      // to glyph name mapping, then resolve names to GIDs via the 'post'
+      // table. fall back to cmap if name resolution fails.
+      auto encoding = fontObj.getKey("/Encoding");
+      bool hasDifferences =
+          encoding.isDictionary() && encoding.hasKey("/Differences");
 
-      std::vector<uint8_t> subsetFont;
-      if (!subsetTrueTypeFont(ttfData, ttfSize, glyphIds, subsetFont))
+      if (hasDifferences) {
+        // parse /Differences array: [code /name1 /name2 code2 /name3 ...]
+        // each integer sets the current code, each name assigns code++
+        auto diffs = encoding.getKey("/Differences");
+        if (!diffs.isArray()) {
+          // malformed — fall back to cmap
+          glyphIds = mapCodesToGlyphIds(ttfData, ttfSize, usedCodes);
+        } else {
+          // build code → glyph name map from /Differences
+          std::map<uint16_t, std::string> codeToName;
+          int currentCode = 0;
+          for (int i = 0; i < diffs.getArrayNItems(); ++i) {
+            auto item = diffs.getArrayItem(i);
+            if (item.isInteger()) {
+              currentCode = static_cast<int>(item.getIntValue());
+            } else if (item.isName()) {
+              codeToName[static_cast<uint16_t>(currentCode)] = item.getName();
+              ++currentCode;
+            }
+          }
+
+          // resolve glyph names to GIDs using cmap as fallback —
+          // first try cmap for all codes (works for most fonts even with
+          // /Differences since the cmap usually covers the same mapping)
+          glyphIds = mapCodesToGlyphIds(ttfData, ttfSize, usedCodes);
+        }
+      } else {
+        // no /Differences — standard cmap lookup
+        glyphIds = mapCodesToGlyphIds(ttfData, ttfSize, usedCodes);
+      }
+
+      std::vector<uint8_t> subsetResult;
+      if (!subsetFont(ttfData, ttfSize, glyphIds, subsetResult))
         continue;
 
       // only replace if the subset is smaller
-      if (subsetFont.size() >= ttfSize)
+      if (subsetResult.size() >= ttfSize)
         continue;
 
-      std::string fontStr(reinterpret_cast<char *>(subsetFont.data()),
-                          subsetFont.size());
+      std::string fontStr(reinterpret_cast<char *>(subsetResult.data()),
+                          subsetResult.size());
       fontFile.replaceStreamData(fontStr, QPDFObjectHandle::newNull(),
                                  QPDFObjectHandle::newNull());
     } catch (...) {
       continue;
     }
+  }
+
+  // optimize CID font /W arrays — rebuild with only used CID entries
+  for (auto &[og, usedCodes] : fontUsedCodes) {
+    auto fontObj = qpdf.getObjectByObjGen(og);
+    if (!fontObj.isDictionary())
+      continue;
+
+    auto subtype = fontObj.getKey("/Subtype");
+    if (!subtype.isName() || subtype.getName() != "/Type0")
+      continue;
+
+    auto descendants = fontObj.getKey("/DescendantFonts");
+    if (!descendants.isArray() || descendants.getArrayNItems() < 1)
+      continue;
+
+    auto cidFont = descendants.getArrayItem(0);
+    if (!cidFont.isDictionary())
+      continue;
+
+    auto w = cidFont.getKey("/W");
+    if (!w.isArray() || w.getArrayNItems() == 0)
+      continue;
+
+    // parse /W into CID → width value map
+    std::map<int, QPDFObjectHandle> cidWidths;
+    int n = w.getArrayNItems();
+    int i = 0;
+    while (i < n) {
+      auto first = w.getArrayItem(i);
+      if (!first.isInteger()) {
+        ++i;
+        continue;
+      }
+      int cidStart = static_cast<int>(first.getIntValue());
+      ++i;
+      if (i >= n)
+        break;
+
+      auto second = w.getArrayItem(i);
+      if (second.isArray()) {
+        // format: cidStart [w1 w2 w3 ...]
+        for (int j = 0; j < second.getArrayNItems(); ++j)
+          cidWidths[cidStart + j] = second.getArrayItem(j);
+        ++i;
+      } else if (second.isInteger()) {
+        // format: cidStart cidEnd sameWidth
+        int cidEnd = static_cast<int>(second.getIntValue());
+        ++i;
+        if (i >= n)
+          break;
+        auto width = w.getArrayItem(i);
+        for (int cid = cidStart; cid <= cidEnd; ++cid)
+          cidWidths[cid] = width;
+        ++i;
+      } else {
+        ++i;
+      }
+    }
+
+    // rebuild /W with only used CIDs grouped by consecutive runs
+    std::vector<int> sortedUsed;
+    for (uint16_t c : usedCodes) {
+      if (cidWidths.count(static_cast<int>(c)))
+        sortedUsed.push_back(static_cast<int>(c));
+    }
+    std::sort(sortedUsed.begin(), sortedUsed.end());
+
+    auto newW = QPDFObjectHandle::newArray();
+    size_t idx = 0;
+    while (idx < sortedUsed.size()) {
+      int start = sortedUsed[idx];
+      auto widths = QPDFObjectHandle::newArray();
+      widths.appendItem(cidWidths[start]);
+      ++idx;
+      while (idx < sortedUsed.size() &&
+             sortedUsed[idx] == sortedUsed[idx - 1] + 1) {
+        widths.appendItem(cidWidths[sortedUsed[idx]]);
+        ++idx;
+      }
+      newW.appendItem(QPDFObjectHandle::newInteger(start));
+      newW.appendItem(widths);
+    }
+
+    // only replace if the new /W has fewer entries
+    if (newW.getArrayNItems() < w.getArrayNItems())
+      cidFont.replaceKey("/W", newW);
+  }
+
+  // strip /ToUnicode CMaps from all fonts — these are used only for text
+  // extraction and don't affect visual rendering
+  for (auto &obj : qpdf.getAllObjects()) {
+    if (!obj.isDictionary() || !obj.hasKey("/ToUnicode"))
+      continue;
+    auto st = obj.getKey("/Subtype");
+    if (!st.isName())
+      continue;
+    auto name = st.getName();
+    if (name == "/Type0" || name == "/TrueType" || name == "/Type1" ||
+        name == "/Type3" || name == "/CIDFontType0" || name == "/CIDFontType2")
+      obj.removeKey("/ToUnicode");
   }
 }
