@@ -93,6 +93,7 @@ if (process.platform === 'darwin') {
 
 // Windows multi-config generator
 if (process.platform === 'win32') {
+  cmakeArgs.push('-DCMAKE_POLICY_DEFAULT_CMP0091=NEW');
   cmakeArgs.push('-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded');
   cmakeArgs.splice(cmakeArgs.indexOf('-DCMAKE_BUILD_TYPE=Release'), 1);
 

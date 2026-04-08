@@ -132,6 +132,7 @@ if (process.platform === 'win32') {
     }
   }
   // force static CRT (/MT) to match node-gyp
+  cmakeArgs.push('-DCMAKE_POLICY_DEFAULT_CMP0091=NEW');
   cmakeArgs.push('-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded');
   // MSVC uses multi-config generator — specify release at build time instead
   cmakeArgs.splice(cmakeArgs.indexOf('-DCMAKE_BUILD_TYPE=Release'), 1);
