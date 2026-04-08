@@ -2,9 +2,8 @@
 #include "font_subset.h"
 #include "images.h"
 
-#include <cctype>
 #include <cstdint>
-#include <cstdlib>
+#include <cstdio>
 #include <cstring>
 #include <map>
 #include <set>
@@ -55,6 +54,42 @@ void stripMetadata(QPDF &qpdf) {
 }
 
 // ---------------------------------------------------------------------------
+// Parser callback: collects font names referenced by Tf operators
+// ---------------------------------------------------------------------------
+
+class FontNameCollector : public QPDFObjectHandle::ParserCallbacks {
+public:
+  std::set<std::string> usedFonts;
+
+  void handleObject(QPDFObjectHandle obj) override {
+    if (obj.isOperator()) {
+      std::string op = obj.getOperatorValue();
+      if (op == "Tf" && operands.size() >= 2) {
+        auto nameObj = operands[operands.size() - 2];
+        if (nameObj.isName())
+          usedFonts.insert(nameObj.getName());
+      }
+      operands.clear();
+    } else {
+      operands.push_back(obj);
+    }
+  }
+  void handleEOF() override {}
+
+private:
+  std::vector<QPDFObjectHandle> operands;
+};
+
+// helper: run FontNameCollector on a stream, swallowing parse errors
+static void collectFontNamesFromStream(QPDFObjectHandle stream,
+                                       FontNameCollector &collector) {
+  try {
+    QPDFObjectHandle::parseContentStream(stream, &collector);
+  } catch (...) {
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Remove unused font resources
 // ---------------------------------------------------------------------------
 
@@ -69,73 +104,36 @@ void removeUnusedFonts(QPDF &qpdf) {
       continue;
 
     // collect all font names referenced in this page's content stream(s)
-    // and any Form XObjects that may inherit page fonts
-    std::set<std::string> usedFonts;
+    // and any Form XObjects via QPDF's built-in content stream parser
+    FontNameCollector collector;
 
+    // scan page content stream(s)
     try {
-      // get unparsed content stream data
       auto contents = pageObj.getKey("/Contents");
-      std::string contentStr;
-
-      if (contents.isStream()) {
-        auto buf = contents.getStreamData(qpdf_dl_generalized);
-        contentStr.assign(reinterpret_cast<const char *>(buf->getBuffer()),
-                          buf->getSize());
-      } else if (contents.isArray()) {
-        for (int i = 0; i < contents.getArrayNItems(); ++i) {
-          auto stream = contents.getArrayItem(i);
-          if (stream.isStream()) {
-            auto buf = stream.getStreamData(qpdf_dl_generalized);
-            contentStr.append(reinterpret_cast<const char *>(buf->getBuffer()),
-                              buf->getSize());
-            contentStr += '\n';
-          }
-        }
-      }
-
-      // also scan Form XObjects that lack their own /Font resources,
-      // since they inherit fonts from the page
-      auto xobjects = resources.getKey("/XObject");
-      if (xobjects.isDictionary()) {
-        for (auto &xobjKey : xobjects.getKeys()) {
-          auto xobj = xobjects.getKey(xobjKey);
-          if (!xobj.isStream())
-            continue;
-          auto xobjDict = xobj.getDict();
-          auto xobjSubtype = xobjDict.getKey("/Subtype");
-          if (!xobjSubtype.isName() || xobjSubtype.getName() != "/Form")
-            continue;
-
-          // skip XObjects that define their own font resources
-          auto xobjRes = xobjDict.getKey("/Resources");
-          if (xobjRes.isDictionary() && xobjRes.getKey("/Font").isDictionary())
-            continue;
-
-          try {
-            auto buf = xobj.getStreamData(qpdf_dl_generalized);
-            contentStr.append(reinterpret_cast<const char *>(buf->getBuffer()),
-                              buf->getSize());
-            contentStr += '\n';
-          } catch (...) {
-          }
-        }
-      }
-
-      // scan for /FontName references — Tf operator uses font name
-      // pattern: /FontName <size> Tf
-      for (auto &fontKey : fonts.getKeys()) {
-        // fontKey includes the leading '/', e.g. "/F1"
-        if (contentStr.find(fontKey) != std::string::npos)
-          usedFonts.insert(fontKey);
-      }
+      collectFontNamesFromStream(contents, collector);
     } catch (...) {
-      continue; // skip this page if content can't be read
+      continue;
     }
 
-    // remove fonts that are not referenced in the content stream
+    // scan all Form XObjects on the page
+    auto xobjects = resources.getKey("/XObject");
+    if (xobjects.isDictionary()) {
+      for (auto &xobjKey : xobjects.getKeys()) {
+        auto xobj = xobjects.getKey(xobjKey);
+        if (!xobj.isStream())
+          continue;
+        auto xobjDict = xobj.getDict();
+        auto xobjSubtype = xobjDict.getKey("/Subtype");
+        if (!xobjSubtype.isName() || xobjSubtype.getName() != "/Form")
+          continue;
+        collectFontNamesFromStream(xobj, collector);
+      }
+    }
+
+    // remove fonts that are not referenced by any Tf operator
     auto allFontKeys = fonts.getKeys();
     for (auto &fontKey : allFontKeys) {
-      if (usedFonts.find(fontKey) == usedFonts.end())
+      if (collector.usedFonts.find(fontKey) == collector.usedFonts.end())
         fonts.removeKey(fontKey);
     }
   }
@@ -279,136 +277,75 @@ void deduplicateStreams(QPDF &qpdf) {
 // Font subsetting — remove unused glyphs from TrueType/CIDFont fonts
 // ---------------------------------------------------------------------------
 
-// collects all Unicode code points used in a page's content stream by
-// parsing text-showing operators (Tj, TJ, ', ")
-static std::set<uint16_t> collectUsedCodes(const std::string &contentStr,
-                                           const std::string &fontKey,
-                                           QPDFObjectHandle fontObj) {
+// ---------------------------------------------------------------------------
+// Parser callback: collects character codes used by a specific font
+// ---------------------------------------------------------------------------
+
+class FontCodeCollector : public QPDFObjectHandle::ParserCallbacks {
+public:
+  std::string targetFont; // e.g. "/F1"
+  bool isCIDFont = false;
+  bool fontActive = false;
   std::set<uint16_t> usedCodes;
 
-  // simple scan: find all string operands between font selection (Tf) and
-  // text-showing operators. For simplicity, collect all hex/literal string
-  // bytes used when this font is active.
-
-  // check if this font uses 2-byte CID encoding
-  auto subtypeKey = fontObj.getKey("/Subtype");
-  bool isCIDFont = subtypeKey.isName() && subtypeKey.getName() == "/Type0";
-
-  // find all ranges where this font is active and collect string bytes
-  bool fontActive = false;
-  size_t pos = 0;
-
-  while (pos < contentStr.size()) {
-    // skip whitespace
-    while (pos < contentStr.size() && std::isspace(contentStr[pos]))
-      ++pos;
-
-    if (pos >= contentStr.size())
-      break;
-
-    // check for font selection: /FontName ... Tf
-    if (contentStr[pos] == '/') {
-      // read name
-      size_t nameStart = pos;
-      ++pos;
-      while (pos < contentStr.size() && !std::isspace(contentStr[pos]) &&
-             contentStr[pos] != '/' && contentStr[pos] != '<' &&
-             contentStr[pos] != '(' && contentStr[pos] != '[')
-        ++pos;
-      std::string name = contentStr.substr(nameStart, pos - nameStart);
-
-      // look ahead for Tf
-      size_t lookAhead = pos;
-      while (lookAhead < contentStr.size() &&
-             std::isspace(contentStr[lookAhead]))
-        ++lookAhead;
-      // skip number
-      while (
-          lookAhead < contentStr.size() &&
-          (std::isdigit(contentStr[lookAhead]) || contentStr[lookAhead] == '.'))
-        ++lookAhead;
-      while (lookAhead < contentStr.size() &&
-             std::isspace(contentStr[lookAhead]))
-        ++lookAhead;
-      if (lookAhead + 1 < contentStr.size() && contentStr[lookAhead] == 'T' &&
-          contentStr[lookAhead + 1] == 'f') {
-        fontActive = (name == fontKey);
-        pos = lookAhead + 2;
-        continue;
+  void handleObject(QPDFObjectHandle obj) override {
+    if (obj.isOperator()) {
+      std::string op = obj.getOperatorValue();
+      if (op == "Tf" && operands.size() >= 2) {
+        auto nameObj = operands[operands.size() - 2];
+        fontActive = nameObj.isName() && nameObj.getName() == targetFont;
       }
-    }
-
-    // collect string data when our font is active
-    if (fontActive && contentStr[pos] == '(') {
-      // literal string
-      ++pos;
-      int depth = 1;
-      while (pos < contentStr.size() && depth > 0) {
-        if (contentStr[pos] == '\\') {
-          ++pos; // skip escaped char
-          if (pos < contentStr.size())
-            ++pos;
-          continue;
-        }
-        if (contentStr[pos] == '(')
-          ++depth;
-        else if (contentStr[pos] == ')')
-          --depth;
-        if (depth > 0) {
-          if (isCIDFont && pos + 1 < contentStr.size()) {
-            uint16_t code = (static_cast<uint8_t>(contentStr[pos]) << 8) |
-                            static_cast<uint8_t>(contentStr[pos + 1]);
-            usedCodes.insert(code);
-            ++pos;
-          } else {
-            usedCodes.insert(static_cast<uint8_t>(contentStr[pos]));
+      if (fontActive) {
+        if (op == "Tj" || op == "'" || op == "\"") {
+          // single string text-showing operators
+          if (!operands.empty() && operands.back().isString())
+            collectFromString(operands.back());
+        } else if (op == "TJ") {
+          // array of strings and position adjustments
+          if (!operands.empty() && operands.back().isArray()) {
+            auto arr = operands.back();
+            for (int i = 0; i < arr.getArrayNItems(); ++i) {
+              auto item = arr.getArrayItem(i);
+              if (item.isString())
+                collectFromString(item);
+            }
           }
-          ++pos;
         }
       }
-      if (depth == 0)
-        ++pos; // skip closing ')'
-      continue;
+      operands.clear();
+    } else {
+      operands.push_back(obj);
     }
-
-    if (fontActive && contentStr[pos] == '<') {
-      // hex string
-      ++pos;
-      std::vector<uint8_t> hexBytes;
-      while (pos < contentStr.size() && contentStr[pos] != '>') {
-        if (std::isxdigit(contentStr[pos])) {
-          char hex[3] = {contentStr[pos], '0', '\0'};
-          if (pos + 1 < contentStr.size() &&
-              std::isxdigit(contentStr[pos + 1])) {
-            hex[1] = contentStr[pos + 1];
-            ++pos;
-          }
-          hexBytes.push_back(
-              static_cast<uint8_t>(std::strtol(hex, nullptr, 16)));
-        }
-        ++pos;
-      }
-      if (pos < contentStr.size())
-        ++pos; // skip '>'
-
-      if (isCIDFont) {
-        for (size_t b = 0; b + 1 < hexBytes.size(); b += 2) {
-          uint16_t code = (hexBytes[b] << 8) | hexBytes[b + 1];
-          usedCodes.insert(code);
-        }
-      } else {
-        for (auto b : hexBytes)
-          usedCodes.insert(b);
-      }
-      continue;
-    }
-
-    // skip other tokens
-    while (pos < contentStr.size() && !std::isspace(contentStr[pos]))
-      ++pos;
   }
+  void handleEOF() override {}
 
-  return usedCodes;
+private:
+  std::vector<QPDFObjectHandle> operands;
+
+  void collectFromString(QPDFObjectHandle strObj) {
+    // getStringValue() returns raw decoded bytes — all escape sequences,
+    // hex encoding, etc. are already resolved by QPDF's parser
+    std::string raw = strObj.getStringValue();
+    if (isCIDFont) {
+      for (size_t i = 0; i + 1 < raw.size(); i += 2) {
+        uint16_t code = (static_cast<uint8_t>(raw[i]) << 8) |
+                        static_cast<uint8_t>(raw[i + 1]);
+        usedCodes.insert(code);
+      }
+    } else {
+      for (unsigned char c : raw)
+        usedCodes.insert(c);
+    }
+  }
+};
+
+// helper: run FontCodeCollector on a stream, swallowing parse errors
+static void collectFontCodesFromStream(QPDFObjectHandle stream,
+                                       FontCodeCollector &collector) {
+  try {
+    QPDFObjectHandle::parseContentStream(stream, &collector);
+  } catch (...) {
+  }
 }
 
 void subsetFonts(QPDF &qpdf) {
@@ -424,61 +361,64 @@ void subsetFonts(QPDF &qpdf) {
     if (!fonts.isDictionary())
       continue;
 
-    // decode content stream once per page (shared across all fonts)
-    auto contents = pageObj.getKey("/Contents");
-    std::string contentStr;
-    try {
-      if (contents.isStream()) {
-        auto buf = contents.getStreamData(qpdf_dl_generalized);
-        contentStr.assign(reinterpret_cast<const char *>(buf->getBuffer()),
-                          buf->getSize());
-      } else if (contents.isArray()) {
-        for (int i = 0; i < contents.getArrayNItems(); ++i) {
-          auto stream = contents.getArrayItem(i);
-          if (stream.isStream()) {
-            auto buf = stream.getStreamData(qpdf_dl_generalized);
-            contentStr.append(reinterpret_cast<const char *>(buf->getBuffer()),
-                              buf->getSize());
-            contentStr += '\n';
-          }
-        }
-      }
+    // build list of (stream, fontDict) pairs to scan:
+    // 1. page content stream(s) use the page's /Font dict
+    // 2. Form XObjects without own /Font also use the page's /Font dict
+    // 3. Form XObjects with own /Font use their own /Font dict
+    struct StreamFonts {
+      QPDFObjectHandle stream;
+      QPDFObjectHandle fontDict;
+    };
+    std::vector<StreamFonts> scanTargets;
 
-      // also include Form XObjects that inherit page fonts
-      auto xobjects = resources.getKey("/XObject");
-      if (xobjects.isDictionary()) {
-        for (auto &xobjKey : xobjects.getKeys()) {
-          auto xobj = xobjects.getKey(xobjKey);
-          if (!xobj.isStream())
-            continue;
-          auto xobjDict = xobj.getDict();
-          auto xobjSubtype = xobjDict.getKey("/Subtype");
-          if (!xobjSubtype.isName() || xobjSubtype.getName() != "/Form")
-            continue;
-          auto xobjRes = xobjDict.getKey("/Resources");
-          if (xobjRes.isDictionary() && xobjRes.getKey("/Font").isDictionary())
-            continue;
-          try {
-            auto buf = xobj.getStreamData(qpdf_dl_generalized);
-            contentStr.append(reinterpret_cast<const char *>(buf->getBuffer()),
-                              buf->getSize());
-            contentStr += '\n';
-          } catch (...) {
-          }
-        }
-      }
+    try {
+      auto contents = pageObj.getKey("/Contents");
+      scanTargets.push_back({contents, fonts});
     } catch (...) {
       continue;
     }
 
-    for (auto &key : fonts.getKeys()) {
-      auto fontObj = fonts.getKey(key);
-      if (!fontObj.isDictionary())
-        continue;
+    auto xobjects = resources.getKey("/XObject");
+    if (xobjects.isDictionary()) {
+      for (auto &xobjKey : xobjects.getKeys()) {
+        auto xobj = xobjects.getKey(xobjKey);
+        if (!xobj.isStream())
+          continue;
+        auto xobjDict = xobj.getDict();
+        auto xobjSubtype = xobjDict.getKey("/Subtype");
+        if (!xobjSubtype.isName() || xobjSubtype.getName() != "/Form")
+          continue;
+        auto xobjRes = xobjDict.getKey("/Resources");
+        if (xobjRes.isDictionary() && xobjRes.getKey("/Font").isDictionary()) {
+          // XObject has own fonts — scan with its font dict
+          scanTargets.push_back({xobj, xobjRes.getKey("/Font")});
+        } else {
+          // XObject inherits page fonts
+          scanTargets.push_back({xobj, fonts});
+        }
+      }
+    }
 
-      auto og = fontObj.getObjGen();
-      auto codes = collectUsedCodes(contentStr, key, fontObj);
-      fontUsedCodes[og].insert(codes.begin(), codes.end());
+    for (auto &target : scanTargets) {
+      for (auto &key : target.fontDict.getKeys()) {
+        auto fontObj = target.fontDict.getKey(key);
+        if (!fontObj.isDictionary())
+          continue;
+
+        auto subtypeKey = fontObj.getKey("/Subtype");
+        bool isCIDFont =
+            subtypeKey.isName() && subtypeKey.getName() == "/Type0";
+
+        FontCodeCollector collector;
+        collector.targetFont = key;
+        collector.isCIDFont = isCIDFont;
+
+        collectFontCodesFromStream(target.stream, collector);
+
+        auto og = fontObj.getObjGen();
+        fontUsedCodes[og].insert(collector.usedCodes.begin(),
+                                 collector.usedCodes.end());
+      }
     }
   }
 
@@ -548,6 +488,7 @@ void subsetFonts(QPDF &qpdf) {
 
   // true font subsetting: strip unused glyph outlines from TrueType fonts
   std::set<QPDFObjGen> processedFonts;
+  std::set<QPDFObjGen> processedFontFiles;
   for (auto &[og, usedCodes] : fontUsedCodes) {
     if (processedFonts.count(og))
       continue;
@@ -558,20 +499,96 @@ void subsetFonts(QPDF &qpdf) {
       continue;
 
     auto subtype = fontObj.getKey("/Subtype");
-    if (!subtype.isName() || subtype.getName() != "/TrueType")
+    if (!subtype.isName())
+      continue;
+    // Type0 composite fonts — subset CIDFontType2 descendants
+    if (subtype.getName() == "/Type0") {
+      auto descendants = fontObj.getKey("/DescendantFonts");
+      if (!descendants.isArray() || descendants.getArrayNItems() < 1)
+        continue;
+
+      auto cidFont = descendants.getArrayItem(0);
+      if (!cidFont.isDictionary())
+        continue;
+
+      auto cidSubtype = cidFont.getKey("/Subtype");
+      if (!cidSubtype.isName() || cidSubtype.getName() != "/CIDFontType2")
+        continue;
+
+      // only handle Identity CIDToGIDMap — CID values map directly to
+      // glyph IDs, so the codes collected by FontCodeCollector are already
+      // the glyph IDs we need for HarfBuzz
+      auto cidToGid = cidFont.getKey("/CIDToGIDMap");
+      if (!cidToGid.isName() || cidToGid.getName() != "/Identity")
+        continue;
+
+      auto cidDescriptor = cidFont.getKey("/FontDescriptor");
+      if (!cidDescriptor.isDictionary() || !cidDescriptor.hasKey("/FontFile2"))
+        continue;
+
+      auto fontFile = cidDescriptor.getKey("/FontFile2");
+      if (!fontFile.isStream())
+        continue;
+
+      // skip if this FontFile2 was already subset by another font object
+      auto ffOg = fontFile.getObjGen();
+      if (processedFontFiles.count(ffOg))
+        continue;
+      processedFontFiles.insert(ffOg);
+
+      try {
+        auto fontData = fontFile.getStreamData(qpdf_dl_all);
+        const uint8_t *ttfData = fontData->getBuffer();
+        size_t ttfSize = fontData->getSize();
+
+        // CID codes = glyph IDs for Identity CIDToGIDMap
+        std::set<uint16_t> glyphIds = usedCodes;
+        glyphIds.insert(0); // always keep .notdef
+
+        if (glyphIds.size() >= 200)
+          continue;
+
+        std::vector<uint8_t> subsetFont;
+        if (!subsetTrueTypeFont(ttfData, ttfSize, glyphIds, subsetFont))
+          continue;
+
+        if (subsetFont.size() >= ttfSize)
+          continue;
+
+        std::string fontStr(reinterpret_cast<char *>(subsetFont.data()),
+                            subsetFont.size());
+        fontFile.replaceStreamData(fontStr, QPDFObjectHandle::newNull(),
+                                   QPDFObjectHandle::newNull());
+      } catch (...) {
+        continue;
+      }
+      continue;
+    }
+
+    // simple TrueType fonts — subset via cmap lookup
+    if (subtype.getName() != "/TrueType")
+      continue;
+
+    // skip fonts with /Encoding /Differences — the cmap-based glyph ID
+    // lookup doesn't account for character code remapping via /Differences,
+    // which would cause the wrong glyphs to be retained
+    auto encoding = fontObj.getKey("/Encoding");
+    if (encoding.isDictionary() && encoding.hasKey("/Differences"))
       continue;
 
     auto descriptor = fontObj.getKey("/FontDescriptor");
-    if (!descriptor.isDictionary())
-      continue;
-
-    // TrueType fonts use /FontFile2
-    if (!descriptor.hasKey("/FontFile2"))
+    if (!descriptor.isDictionary() || !descriptor.hasKey("/FontFile2"))
       continue;
 
     auto fontFile = descriptor.getKey("/FontFile2");
     if (!fontFile.isStream())
       continue;
+
+    // skip if this FontFile2 was already subset by another font object
+    auto ffOg = fontFile.getObjGen();
+    if (processedFontFiles.count(ffOg))
+      continue;
+    processedFontFiles.insert(ffOg);
 
     try {
       auto fontData = fontFile.getStreamData(qpdf_dl_all);
@@ -581,8 +598,6 @@ void subsetFonts(QPDF &qpdf) {
       // map character codes → glyph IDs via cmap
       auto glyphIds = mapCodesToGlyphIds(ttfData, ttfSize, usedCodes);
 
-      // skip if we'd keep all or nearly all glyphs
-      // (subsetting overhead wouldn't be worth it)
       if (glyphIds.size() >= 200)
         continue;
 
@@ -590,9 +605,7 @@ void subsetFonts(QPDF &qpdf) {
       if (!subsetTrueTypeFont(ttfData, ttfSize, glyphIds, subsetFont))
         continue;
 
-      // only replace if the subset is smaller than the original uncompressed
-      // font (both will be Flate-compressed by QPDFWriter, so comparing
-      // uncompressed sizes is the fair comparison)
+      // only replace if the subset is smaller
       if (subsetFont.size() >= ttfSize)
         continue;
 

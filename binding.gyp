@@ -13,6 +13,7 @@
         "<!@(node -p \"require('node-addon-api').include\")",
         "deps/qpdf/include",
         "deps/mozjpeg/include",
+        "deps/harfbuzz/include/harfbuzz",
         "src"
       ],
       "defines": [
@@ -57,6 +58,8 @@
               ],
               "OTHER_LDFLAGS": [
                 "<(module_root_dir)/deps/qpdf/lib/libqpdf.a",
+                "<(module_root_dir)/deps/harfbuzz/lib/libharfbuzz-subset.a",
+                "<(module_root_dir)/deps/harfbuzz/lib/libharfbuzz.a",
                 "-L/opt/homebrew/lib",
                 "-L/usr/local/lib",
                 "-lz",
@@ -73,6 +76,8 @@
           {
             "libraries": [
               "<(module_root_dir)/deps/qpdf/lib/libqpdf.a",
+              "<(module_root_dir)/deps/harfbuzz/lib/libharfbuzz-subset.a",
+              "<(module_root_dir)/deps/harfbuzz/lib/libharfbuzz.a",
               "-lz",
               "<(module_root_dir)/deps/mozjpeg/lib/libjpeg.a",
               "-static-libstdc++",
@@ -107,7 +112,9 @@
             "libraries": [
               "<(module_root_dir)/deps/qpdf/lib/qpdf.lib",
               "<(module_root_dir)/deps/qpdf/lib/zlib.lib",
-              "<(module_root_dir)/deps/mozjpeg/lib/jpeg-static.lib"
+              "<(module_root_dir)/deps/mozjpeg/lib/jpeg-static.lib",
+              "<(module_root_dir)/deps/harfbuzz/lib/harfbuzz-subset.lib",
+              "<(module_root_dir)/deps/harfbuzz/lib/harfbuzz.lib"
             ]
           }
         ]
