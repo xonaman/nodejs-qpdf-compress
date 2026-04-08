@@ -198,16 +198,16 @@ protected:
       writer.setPreserveUnreferencedObjects(false);
       writer.write();
 
-      auto buf = writer.getBufferSharedPointer();
-      result_.assign(buf->getBuffer(), buf->getBuffer() + buf->getSize());
+      writerBuf_ = writer.getBufferSharedPointer();
 
       if (!outputPath_.empty()) {
-        auto err = writeToFile(outputPath_, result_.data(), result_.size());
+        auto err = writeToFile(outputPath_, writerBuf_->getBuffer(),
+                               writerBuf_->getSize());
         if (!err.empty()) {
           SetError(err);
           return;
         }
-        result_.clear();
+        writerBuf_.reset();
       }
     } catch (std::exception &e) {
       SetError(e.what());
@@ -216,8 +216,14 @@ protected:
 
   void OnOK() override {
     if (outputPath_.empty()) {
-      deferred_.Resolve(
-          Napi::Buffer<uint8_t>::Copy(Env(), result_.data(), result_.size()));
+      // zero-copy: transfer QPDFWriter's buffer directly to JS, preventing
+      // a redundant full-copy of the compressed PDF
+      auto *prevent_copy = new std::shared_ptr<Buffer>(std::move(writerBuf_));
+      deferred_.Resolve(Napi::Buffer<uint8_t>::New(
+          Env(), prevent_copy->get()->getBuffer(),
+          prevent_copy->get()->getSize(),
+          [](Napi::Env, uint8_t *, std::shared_ptr<Buffer> *p) { delete p; },
+          prevent_copy));
     } else {
       deferred_.Resolve(Env().Undefined());
     }
@@ -236,7 +242,7 @@ private:
   bool stripMeta_;
   bool useFile_;
   std::string outputPath_;
-  std::vector<uint8_t> result_;
+  std::shared_ptr<Buffer> writerBuf_;
 };
 
 // ---------------------------------------------------------------------------

@@ -26,7 +26,7 @@
         "-fno-exceptions"
       ],
       "cflags": [
-        "-Oz",
+        "-O2",
         "-flto",
         "-ffunction-sections",
         "-fdata-sections"
@@ -54,7 +54,7 @@
               "DEAD_CODE_STRIPPING": "YES",
               "LLVM_LTO": "YES",
               "OTHER_CPLUSPLUSFLAGS": [
-                "-Oz",
+                "-O2",
                 "-flto",
                 "-ffunction-sections",
                 "-fdata-sections"
@@ -102,7 +102,7 @@
             "msvs_settings": {
               "VCCLCompilerTool": {
                 "ExceptionHandling": 1,
-                "Optimization": 1,
+                "Optimization": 2,
                 "WholeProgramOptimization": "true",
                 "RuntimeLibrary": 0,
                 "AdditionalOptions": [
