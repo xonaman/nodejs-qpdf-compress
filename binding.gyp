@@ -6,7 +6,10 @@
         "src/qpdf_addon.cc",
         "src/jpeg.cc",
         "src/images.cc",
-        "src/optimize.cc",
+        "src/fonts.cc",
+        "src/content.cc",
+        "src/strip.cc",
+        "src/structure.cc",
         "src/font_subset.cc"
       ],
       "include_dirs": [
