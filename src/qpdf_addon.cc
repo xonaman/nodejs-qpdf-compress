@@ -1,5 +1,6 @@
 #include <napi.h>
 
+#include <atomic>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
@@ -45,6 +46,27 @@ static std::string writeToFile(const std::string &path, const uint8_t *data,
 }
 
 // ---------------------------------------------------------------------------
+// Per-environment alive flag for worker thread safety.
+// When a Node.js worker thread is terminated, the V8 isolate tears down but
+// libuv async callbacks (OnOK/OnError) may still fire. This flag lets workers
+// bail out before touching V8 handles on a torn-down isolate.
+// ---------------------------------------------------------------------------
+
+struct AddonData {
+  std::shared_ptr<std::atomic<bool>> envAlive =
+      std::make_shared<std::atomic<bool>>(true);
+};
+
+static std::shared_ptr<std::atomic<bool>> GetEnvAlive(Napi::Env env) {
+  auto *data = env.GetInstanceData<AddonData>();
+  return data ? data->envAlive : nullptr;
+}
+
+#define CHECK_ENV()                                                            \
+  if (envAlive_ && !envAlive_->load())                                         \
+    return;
+
+// ---------------------------------------------------------------------------
 // CompressWorker — async PDF compression
 // ---------------------------------------------------------------------------
 
@@ -54,15 +76,17 @@ public:
   CompressWorker(Napi::Env env, std::vector<uint8_t> data, bool lossy,
                  bool stripMeta, std::string outputPath)
       : Napi::AsyncWorker(env), deferred_(Napi::Promise::Deferred::New(env)),
-        bufferData_(std::move(data)), lossy_(lossy), stripMeta_(stripMeta),
-        useFile_(false), outputPath_(std::move(outputPath)) {}
+        envAlive_(GetEnvAlive(env)), bufferData_(std::move(data)),
+        lossy_(lossy), stripMeta_(stripMeta), useFile_(false),
+        outputPath_(std::move(outputPath)) {}
 
   // file path variant
   CompressWorker(Napi::Env env, std::string path, bool lossy, bool stripMeta,
                  std::string outputPath)
       : Napi::AsyncWorker(env), deferred_(Napi::Promise::Deferred::New(env)),
-        filePath_(std::move(path)), lossy_(lossy), stripMeta_(stripMeta),
-        useFile_(true), outputPath_(std::move(outputPath)) {}
+        envAlive_(GetEnvAlive(env)), filePath_(std::move(path)), lossy_(lossy),
+        stripMeta_(stripMeta), useFile_(true),
+        outputPath_(std::move(outputPath)) {}
 
   Napi::Promise Promise() { return deferred_.Promise(); }
 
@@ -152,6 +176,7 @@ protected:
   }
 
   void OnOK() override {
+    CHECK_ENV();
     if (outputPath_.empty()) {
       deferred_.Resolve(
           Napi::Buffer<uint8_t>::Copy(Env(), result_.data(), result_.size()));
@@ -161,11 +186,13 @@ protected:
   }
 
   void OnError(Napi::Error const &error) override {
+    CHECK_ENV();
     deferred_.Reject(error.Value());
   }
 
 private:
   Napi::Promise::Deferred deferred_;
+  std::shared_ptr<std::atomic<bool>> envAlive_;
   std::vector<uint8_t> bufferData_;
   std::string filePath_;
   bool lossy_;
@@ -232,6 +259,11 @@ static Napi::Value Compress(const Napi::CallbackInfo &info) {
 // ---------------------------------------------------------------------------
 
 static Napi::Object Init(Napi::Env env, Napi::Object exports) {
+  auto *addonData = new AddonData();
+  env.SetInstanceData(addonData);
+  auto envAlive = addonData->envAlive;
+  env.AddCleanupHook([envAlive]() { envAlive->store(false); });
+
   exports.Set("compress", Napi::Function::New(env, Compress));
   return exports;
 }
