@@ -85,6 +85,7 @@
               "<(module_root_dir)/deps/mozjpeg/lib/libjpeg.a",
               "-static-libstdc++",
               "-flto",
+              "-Wl,--allow-multiple-definition",
               "-Wl,--gc-sections",
               "-Wl,-S",
               "-lpthread",

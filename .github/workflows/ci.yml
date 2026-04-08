@@ -37,10 +37,11 @@ jobs:
       - run: npm run format:check
       - run: npm run lint:check
 
-      - name: Build mozjpeg, QPDF, and native addon
+      - name: Build dependencies and native addon
         run: |
           node scripts/download-mozjpeg.mjs
           node scripts/download-qpdf.mjs
+          node scripts/download-harfbuzz.mjs
           npx node-gyp rebuild
           node scripts/bundle-lib.mjs
         env:

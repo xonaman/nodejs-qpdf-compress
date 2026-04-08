@@ -97,6 +97,9 @@ jobs:
           VCPKG_ROOT: ${{ runner.os == 'Windows' && 'C:\vcpkg' || '' }}
           VCPKG_TARGET_TRIPLET: ${{ runner.os == 'Windows' && format('{0}-windows-static', matrix.arch) || '' }}
 
+      - name: Build HarfBuzz
+        run: node scripts/download-harfbuzz.mjs
+
       - name: Build native addon
         run: npx node-gyp rebuild --arch=${{ matrix.arch }}
 
@@ -165,6 +168,7 @@ jobs:
               npm ci --ignore-scripts &&
               node scripts/download-mozjpeg.mjs &&
               node scripts/download-qpdf.mjs &&
+              node scripts/download-harfbuzz.mjs &&
               npx node-gyp rebuild &&
               node scripts/bundle-lib.mjs &&
               npm test
