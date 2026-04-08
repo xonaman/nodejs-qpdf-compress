@@ -102,6 +102,22 @@ protected:
           SetError("Input file not found: " + filePath_);
           return;
         }
+        // validate PDF header to prevent QPDF from aborting on garbage input
+        {
+          auto closer = [](FILE *fp) {
+            if (fp)
+              fclose(fp);
+          };
+          std::unique_ptr<FILE, decltype(closer)> f(
+              fopen(filePath_.c_str(), "rb"), closer);
+          if (f) {
+            char hdr[5] = {};
+            if (fread(hdr, 1, 5, f.get()) < 5 || memcmp(hdr, "%PDF-", 5) != 0) {
+              SetError("Input is not a valid PDF (missing %PDF- header)");
+              return;
+            }
+          }
+        }
         qpdf.processFile(filePath_.c_str());
       } else {
         // validate PDF header to prevent QPDF from aborting on garbage input
