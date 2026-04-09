@@ -279,7 +279,7 @@ void subsetFonts(QPDF &qpdf) {
         if (w.isInteger() && w.getIntValue() != 0) {
           widths.setArrayItem(i, QPDFObjectHandle::newInteger(0));
           modified = true;
-        } else if (w.isReal() && std::stod(w.getRealValue()) != 0.0) {
+        } else if (w.isReal() && w.getNumericValue() != 0.0) {
           widths.setArrayItem(i, QPDFObjectHandle::newInteger(0));
           modified = true;
         }
@@ -588,19 +588,5 @@ void subsetFonts(QPDF &qpdf) {
     // only replace if the new /W has fewer entries
     if (newW.getArrayNItems() < w.getArrayNItems())
       cidFont.replaceKey("/W", newW);
-  }
-
-  // strip /ToUnicode CMaps from all fonts — these are used only for text
-  // extraction and don't affect visual rendering
-  for (auto &obj : qpdf.getAllObjects()) {
-    if (!obj.isDictionary() || !obj.hasKey("/ToUnicode"))
-      continue;
-    auto st = obj.getKey("/Subtype");
-    if (!st.isName())
-      continue;
-    auto name = st.getName();
-    if (name == "/Type0" || name == "/TrueType" || name == "/Type1" ||
-        name == "/Type3" || name == "/CIDFontType0" || name == "/CIDFontType2")
-      obj.removeKey("/ToUnicode");
   }
 }

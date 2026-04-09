@@ -42,13 +42,12 @@ static std::string writeToFile(const std::string &path, const uint8_t *data,
            std::string(std::strerror(errno)) + ")";
   }
   size_t written = fwrite(data, 1, size, f);
-  int flushErr = fflush(f);
-  fclose(f);
+  int closeErr = fclose(f);
   if (written != size)
     return "Failed to write output file: " + path + " (" +
            std::string(std::strerror(errno)) + ")";
-  if (flushErr != 0)
-    return "Failed to flush output file: " + path + " (" +
+  if (closeErr != 0)
+    return "Failed to close output file: " + path + " (" +
            std::string(std::strerror(errno)) + ")";
   return {};
 }
@@ -307,7 +306,10 @@ static Napi::Object Init(Napi::Env env, Napi::Object exports) {
   auto *addonData = new AddonData();
   env.SetInstanceData(addonData);
   auto envAlive = addonData->envAlive;
-  env.AddCleanupHook([envAlive]() { envAlive->store(false); });
+  env.AddCleanupHook([addonData]() {
+    addonData->envAlive->store(false);
+    delete addonData;
+  });
 
   exports.Set("compress", Napi::Function::New(env, Compress));
   return exports;

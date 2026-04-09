@@ -155,9 +155,15 @@ void stripEmbeddedFiles(QPDF &qpdf) {
 void stripJavaScript(QPDF &qpdf) {
   auto root = qpdf.getRoot();
 
-  // remove document-level open action
-  if (root.hasKey("/OpenAction"))
-    root.removeKey("/OpenAction");
+  // remove document-level open action only if it is JavaScript
+  if (root.hasKey("/OpenAction")) {
+    auto action = root.getKey("/OpenAction");
+    if (action.isDictionary()) {
+      auto s = action.getKey("/S");
+      if (s.isName() && s.getName() == "/JavaScript")
+        root.removeKey("/OpenAction");
+    }
+  }
 
   // remove document-level additional actions
   if (root.hasKey("/AA"))
@@ -214,10 +220,6 @@ void stripDocumentOverhead(QPDF &qpdf) {
   // remove structure tree (tagged PDF accessibility info)
   if (root.hasKey("/StructTreeRoot"))
     root.removeKey("/StructTreeRoot");
-
-  // remove bookmarks/outlines
-  if (root.hasKey("/Outlines"))
-    root.removeKey("/Outlines");
 
   // remove output intents (PDF/A color management metadata)
   if (root.hasKey("/OutputIntents"))

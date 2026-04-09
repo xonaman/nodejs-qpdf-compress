@@ -104,7 +104,7 @@ void minifyContentStreams(QPDF &qpdf) {
       // literal string — copy verbatim
       if (ch == '(') {
         if (needSpace) {
-          minified += '\n';
+          minified += ' ';
           needSpace = false;
         }
         int depth = 1;
@@ -130,7 +130,7 @@ void minifyContentStreams(QPDF &qpdf) {
       // hex string — copy verbatim
       if (ch == '<' && pos + 1 < raw.size() && raw[pos + 1] != '<') {
         if (needSpace) {
-          minified += '\n';
+          minified += ' ';
           needSpace = false;
         }
         minified += '<';
@@ -151,7 +151,7 @@ void minifyContentStreams(QPDF &qpdf) {
       // dict delimiters << >> — self-delimiting, no space needed around them
       if (ch == '<' && pos + 1 < raw.size() && raw[pos + 1] == '<') {
         if (needSpace) {
-          minified += '\n';
+          minified += ' ';
           needSpace = false;
         }
         minified += "<<";
@@ -168,7 +168,7 @@ void minifyContentStreams(QPDF &qpdf) {
       // array delimiters — self-delimiting
       if (ch == '[' || ch == ']') {
         if (needSpace && ch == '[') {
-          minified += '\n';
+          minified += ' ';
           needSpace = false;
         }
         minified += ch;
@@ -181,7 +181,7 @@ void minifyContentStreams(QPDF &qpdf) {
       // name — starts with /
       if (ch == '/') {
         if (needSpace) {
-          minified += '\n';
+          minified += ' ';
           needSpace = false;
         }
         size_t start = pos;
@@ -200,7 +200,7 @@ void minifyContentStreams(QPDF &qpdf) {
       // regular token (number, operator)
       {
         if (needSpace) {
-          minified += '\n';
+          minified += ' ';
           needSpace = false;
         }
         size_t start = pos;

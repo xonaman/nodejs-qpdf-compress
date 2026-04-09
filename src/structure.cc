@@ -2,6 +2,7 @@
 #include "images.h"
 
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <map>
 #include <set>
@@ -225,10 +226,13 @@ void flattenForms(QPDF &qpdf) {
           apDict.replaceKey("/Subtype", QPDFObjectHandle::newName("/Form"));
 
         // build content stream snippet to stamp the appearance
-        std::string snippet = "q " + std::to_string(scaleX) + " 0 0 " +
-                              std::to_string(scaleY) + " " +
-                              std::to_string(x1) + " " + std::to_string(y1) +
-                              " cm " + xobjName + " Do Q\n";
+        // use snprintf instead of std::to_string to avoid locale-dependent
+        // decimal separators (e.g. comma instead of period)
+        char buf[256];
+        std::snprintf(buf, sizeof(buf),
+                      "q %.6g 0 0 %.6g %.6g %.6g cm %s Do Q\n", scaleX, scaleY,
+                      x1, y1, xobjName.c_str());
+        std::string snippet(buf);
 
         // append to page content stream
         page.addPageContents(QPDFObjectHandle::newStream(&qpdf, snippet),

@@ -4,13 +4,27 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
+
+#ifdef __APPLE__
+#include <xlocale.h>
+#else
+#include <locale.h>
+#endif
 #include <limits>
 #include <map>
 #include <set>
 #include <unordered_map>
 
 #include <qpdf/Buffer.hh>
+
+// locale-independent double parser for PDF content stream operands
+static double parsePdfDouble(const std::string &s) {
+  // strtod_l with "C" locale is available on macOS and glibc/musl Linux
+  static locale_t c_locale = newlocale(LC_NUMERIC_MASK, "C", (locale_t)0);
+  return strtod_l(s.c_str(), nullptr, c_locale);
+}
 
 // ---------------------------------------------------------------------------
 // Color space helpers
@@ -223,12 +237,12 @@ getImageRenderedSizes(QPDFPageObjectHelper &page) {
       // cm operator: a b c d e f cm
       try {
         Matrix m;
-        m.a = std::stod(operandStack[operandStack.size() - 6]);
-        m.b = std::stod(operandStack[operandStack.size() - 5]);
-        m.c = std::stod(operandStack[operandStack.size() - 4]);
-        m.d = std::stod(operandStack[operandStack.size() - 3]);
-        m.e = std::stod(operandStack[operandStack.size() - 2]);
-        m.f = std::stod(operandStack[operandStack.size() - 1]);
+        m.a = parsePdfDouble(operandStack[operandStack.size() - 6]);
+        m.b = parsePdfDouble(operandStack[operandStack.size() - 5]);
+        m.c = parsePdfDouble(operandStack[operandStack.size() - 4]);
+        m.d = parsePdfDouble(operandStack[operandStack.size() - 3]);
+        m.e = parsePdfDouble(operandStack[operandStack.size() - 2]);
+        m.f = parsePdfDouble(operandStack[operandStack.size() - 1]);
         ctm = multiply(m, ctm);
       } catch (...) {
       }
