@@ -222,6 +222,35 @@ void minifyContentStreams(QPDF &qpdf) {
 
         minified += token;
         needSpace = true;
+
+        // handle inline image data (BI <key-value pairs> ID <binary> EI)
+        // the binary data after ID can contain any byte — copy verbatim
+        if (token == "ID") {
+          // copy the required single whitespace delimiter after ID
+          if (pos < raw.size())
+            minified += raw[pos++];
+          // copy binary data verbatim until the EI end marker:
+          // whitespace + "EI" + (whitespace or end-of-stream)
+          bool foundEI = false;
+          while (pos + 2 < raw.size()) {
+            if (std::isspace(static_cast<unsigned char>(raw[pos])) &&
+                raw[pos + 1] == 'E' && raw[pos + 2] == 'I' &&
+                (pos + 3 >= raw.size() ||
+                 std::isspace(static_cast<unsigned char>(raw[pos + 3])))) {
+              minified += raw[pos]; // whitespace before EI
+              minified += "EI";
+              pos += 3;
+              foundEI = true;
+              break;
+            }
+            minified += raw[pos++];
+          }
+          if (!foundEI) {
+            // malformed stream — copy remaining bytes verbatim
+            while (pos < raw.size())
+              minified += raw[pos++];
+          }
+        }
       }
     }
 

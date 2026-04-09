@@ -144,6 +144,36 @@ std::set<uint16_t> mapCodesToGlyphIds(const uint8_t *data, size_t size,
     return readU16(sub + off);
   };
 
+  // helper: look up a single code in a format 12 subtable (segmented coverage)
+  auto lookupFormat12 = [&](const uint8_t *sub, uint16_t code) -> uint16_t {
+    // format 12 header: uint16 format, uint16 reserved, uint32 length,
+    // uint32 language, uint32 numGroups
+    if (sub + 16 > cmap + cmapLen)
+      return 0;
+    uint32_t numGroups = readU32(sub + 12);
+    // guard against overflow: numGroups * 12 must fit in remaining bytes
+    size_t remaining = static_cast<size_t>((cmap + cmapLen) - (sub + 16));
+    if (numGroups > remaining / 12)
+      return 0;
+    const uint8_t *groups = sub + 16;
+    if (groups + numGroups * 12 > cmap + cmapLen)
+      return 0;
+
+    // each group: uint32 startCharCode, uint32 endCharCode, uint32
+    // startGlyphID
+    for (uint32_t g = 0; g < numGroups; ++g) {
+      const uint8_t *grp = groups + g * 12;
+      uint32_t startChar = readU32(grp);
+      uint32_t endChar = readU32(grp + 4);
+      uint32_t startGlyph = readU32(grp + 8);
+      if (code >= startChar && code <= endChar) {
+        uint32_t gid = startGlyph + (code - startChar);
+        return static_cast<uint16_t>(gid & 0xFFFF);
+      }
+    }
+    return 0;
+  };
+
   // collect all subtables with their platform/encoding info
   struct CmapSubtable {
     uint16_t platformId;
@@ -163,7 +193,7 @@ std::set<uint16_t> mapCodesToGlyphIds(const uint8_t *data, size_t size,
     if (subtableOffset + 2 > cmapLen)
       continue;
     uint16_t fmt = readU16(cmap + subtableOffset);
-    if (fmt == 0 || fmt == 4 || fmt == 6)
+    if (fmt == 0 || fmt == 4 || fmt == 6 || fmt == 12)
       subtables.push_back({platformId, encodingId, fmt, cmap + subtableOffset});
   }
 
@@ -179,6 +209,8 @@ std::set<uint16_t> mapCodesToGlyphIds(const uint8_t *data, size_t size,
         gid = lookupFormat0(sub.data, code);
       else if (sub.format == 6)
         gid = lookupFormat6(sub.data, code);
+      else if (sub.format == 12)
+        gid = lookupFormat12(sub.data, code);
 
       if (gid != 0) {
         glyphIds.insert(gid);
@@ -192,6 +224,8 @@ std::set<uint16_t> mapCodesToGlyphIds(const uint8_t *data, size_t size,
           gid = lookupFormat4(sub.data, symCode);
         else if (sub.format == 6)
           gid = lookupFormat6(sub.data, symCode);
+        else if (sub.format == 12)
+          gid = lookupFormat12(sub.data, symCode);
         if (gid != 0)
           glyphIds.insert(gid);
       }

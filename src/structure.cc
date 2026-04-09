@@ -1,6 +1,8 @@
 #include "structure.h"
 #include "images.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -154,6 +156,7 @@ void flattenForms(QPDF &qpdf) {
       continue;
 
     std::vector<int> widgetIndices;
+    std::string allSnippets;
     for (int i = 0; i < annots.getArrayNItems(); ++i) {
       auto annot = annots.getArrayItem(i);
       if (!annot.isDictionary())
@@ -162,6 +165,17 @@ void flattenForms(QPDF &qpdf) {
       auto subtype = annot.getKey("/Subtype");
       if (!subtype.isName() || subtype.getName() != "/Widget")
         continue;
+
+      // skip hidden, invisible, or no-view annotations
+      if (annot.hasKey("/F")) {
+        auto flags = annot.getKey("/F");
+        if (flags.isInteger()) {
+          int f = static_cast<int>(flags.getIntValue());
+          // bit 1 = Invisible, bit 2 = Hidden, bit 6 (32) = NoView
+          if (f & (1 | 2 | 32))
+            continue;
+        }
+      }
 
       // check if there's a normal appearance to flatten
       auto ap = annot.getKey("/AP");
@@ -177,31 +191,96 @@ void flattenForms(QPDF &qpdf) {
         continue;
 
       try {
-        double x1 = rect.getArrayItem(0).getNumericValue();
-        double y1 = rect.getArrayItem(1).getNumericValue();
-        double x2 = rect.getArrayItem(2).getNumericValue();
-        double y2 = rect.getArrayItem(3).getNumericValue();
+        double rx1 = rect.getArrayItem(0).getNumericValue();
+        double ry1 = rect.getArrayItem(1).getNumericValue();
+        double rx2 = rect.getArrayItem(2).getNumericValue();
+        double ry2 = rect.getArrayItem(3).getNumericValue();
 
-        double w = x2 - x1;
-        double h = y2 - y1;
-        if (w <= 0 || h <= 0)
+        // normalize rect (some generators produce inverted coordinates)
+        if (rx1 > rx2)
+          std::swap(rx1, rx2);
+        if (ry1 > ry2)
+          std::swap(ry1, ry2);
+
+        double rw = rx2 - rx1;
+        double rh = ry2 - ry1;
+        if (rw <= 0 || rh <= 0)
           continue;
 
-        // get appearance stream bounding box for scaling
+        // get appearance stream bounding box and matrix
         auto apDict = nAppearance.getDict();
-        double scaleX = 1.0, scaleY = 1.0;
+        double bx1 = 0, by1 = 0, bx2 = 1, by2 = 1;
         if (apDict.hasKey("/BBox")) {
           auto bbox = apDict.getKey("/BBox");
           if (bbox.isArray() && bbox.getArrayNItems() >= 4) {
-            double bw = bbox.getArrayItem(2).getNumericValue() -
-                        bbox.getArrayItem(0).getNumericValue();
-            double bh = bbox.getArrayItem(3).getNumericValue() -
-                        bbox.getArrayItem(1).getNumericValue();
-            if (bw > 0)
-              scaleX = w / bw;
-            if (bh > 0)
-              scaleY = h / bh;
+            bx1 = bbox.getArrayItem(0).getNumericValue();
+            by1 = bbox.getArrayItem(1).getNumericValue();
+            bx2 = bbox.getArrayItem(2).getNumericValue();
+            by2 = bbox.getArrayItem(3).getNumericValue();
           }
+        }
+
+        double bw = bx2 - bx1;
+        double bh = by2 - by1;
+        if (std::abs(bw) < 1e-10 || std::abs(bh) < 1e-10)
+          continue;
+
+        // BBox→Rect mapping: scale then translate
+        double sx = rw / bw;
+        double sy = rh / bh;
+        double stx = rx1 - bx1 * sx;
+        double sty = ry1 - by1 * sy;
+        // S = [sx, 0, 0, sy, stx, sty]
+
+        // read the form's /Matrix (default identity). the Do operator
+        // applies this matrix, so our CTM must compensate:
+        // rendered = FormMatrix × OurCTM, we want rendered = S,
+        // so OurCTM = FormMatrix⁻¹ × S.
+        double ma = 1, mb = 0, mc = 0, md = 1, me = 0, mf = 0;
+        if (apDict.hasKey("/Matrix")) {
+          auto matrix = apDict.getKey("/Matrix");
+          if (matrix.isArray() && matrix.getArrayNItems() >= 6) {
+            ma = matrix.getArrayItem(0).getNumericValue();
+            mb = matrix.getArrayItem(1).getNumericValue();
+            mc = matrix.getArrayItem(2).getNumericValue();
+            md = matrix.getArrayItem(3).getNumericValue();
+            me = matrix.getArrayItem(4).getNumericValue();
+            mf = matrix.getArrayItem(5).getNumericValue();
+          }
+        }
+
+        // compute CTM = Matrix⁻¹ × S
+        // PDF matrix [a b c d e f] represents:
+        //   | a  b  0 |
+        //   | c  d  0 |
+        //   | e  f  1 |
+        double ca, cb, cc, cd, ce, cf;
+        double det = ma * md - mb * mc;
+        if (std::abs(det) < 1e-10) {
+          // degenerate matrix — use BBox→Rect directly
+          ca = sx;
+          cb = 0;
+          cc = 0;
+          cd = sy;
+          ce = stx;
+          cf = sty;
+        } else {
+          // inverse of Matrix
+          double ia = md / det;
+          double ib = -mb / det;
+          double ic = -mc / det;
+          double id = ma / det;
+          double ie = (mc * mf - md * me) / det;
+          double iif = (mb * me - ma * mf) / det;
+
+          // multiply M⁻¹ × S (M⁻¹ is left, S is right):
+          // [ia, ib, ic, id, ie, iif] × [sx, 0, 0, sy, stx, sty]
+          ca = ia * sx;
+          cb = ib * sy;
+          cc = ic * sx;
+          cd = id * sy;
+          ce = ie * sx + stx;
+          cf = iif * sy + sty;
         }
 
         // register appearance as a form XObject on the page
@@ -225,18 +304,13 @@ void flattenForms(QPDF &qpdf) {
         if (!apDict.hasKey("/Subtype"))
           apDict.replaceKey("/Subtype", QPDFObjectHandle::newName("/Form"));
 
-        // build content stream snippet to stamp the appearance
-        // use snprintf instead of std::to_string to avoid locale-dependent
-        // decimal separators (e.g. comma instead of period)
-        char buf[256];
+        // build content stream snippet with the full affine CTM
+        // use snprintf for locale-safe decimal formatting
+        char buf[384];
         std::snprintf(buf, sizeof(buf),
-                      "q %.6g 0 0 %.6g %.6g %.6g cm %s Do Q\n", scaleX, scaleY,
-                      x1, y1, xobjName.c_str());
-        std::string snippet(buf);
-
-        // append to page content stream
-        page.addPageContents(QPDFObjectHandle::newStream(&qpdf, snippet),
-                             false);
+                      "q %.6g %.6g %.6g %.6g %.6g %.6g cm %s Do Q\n", ca, cb,
+                      cc, cd, ce, cf, xobjName.c_str());
+        allSnippets += buf;
 
         widgetIndices.push_back(i);
       } catch (...) {
@@ -244,9 +318,18 @@ void flattenForms(QPDF &qpdf) {
       }
     }
 
-    // remove widget annotations (reverse order to preserve indices)
-    for (auto it = widgetIndices.rbegin(); it != widgetIndices.rend(); ++it)
-      annots.eraseItem(*it);
+    if (!widgetIndices.empty()) {
+      // wrap existing page content in q/Q so the flattened form snippets
+      // run with the default (identity) CTM, regardless of any active
+      // transforms in the page content (e.g. top-down Y-flip)
+      page.addPageContents(QPDFObjectHandle::newStream(&qpdf, "q\n"), true);
+      page.addPageContents(
+          QPDFObjectHandle::newStream(&qpdf, "Q\n" + allSnippets), false);
+
+      // remove widget annotations (reverse order to preserve indices)
+      for (auto it = widgetIndices.rbegin(); it != widgetIndices.rend(); ++it)
+        annots.eraseItem(*it);
+    }
   }
 
   // remove the /AcroForm dictionary
