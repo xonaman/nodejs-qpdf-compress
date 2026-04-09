@@ -117,8 +117,7 @@
               "<(module_root_dir)/deps/qpdf/lib/qpdf.lib",
               "<(module_root_dir)/deps/qpdf/lib/zlib.lib",
               "<(module_root_dir)/deps/mozjpeg/lib/jpeg-static.lib",
-              "<(module_root_dir)/deps/harfbuzz/lib/harfbuzz-subset.lib",
-              "<(module_root_dir)/deps/harfbuzz/lib/harfbuzz.lib"
+              "<(module_root_dir)/deps/harfbuzz/lib/harfbuzz-subset.lib"
             ]
           }
         ]
