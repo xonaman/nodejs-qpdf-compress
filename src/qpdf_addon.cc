@@ -1,11 +1,13 @@
 #include <napi.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <string_view>
 #ifdef _WIN32
 #include <io.h>
 #define F_OK 0
@@ -127,6 +129,16 @@ protected:
         }
         qpdf.processFile(filePath_.c_str());
       } else {
+        // search for %PDF marker in the first 1024 bytes — every legitimate
+        // PDF has one, even corrupt files. pure garbage must be rejected
+        // before QPDF to avoid unrecoverable crashes in the parser.
+        size_t scanLen = std::min(bufferData_.size(), size_t{1024});
+        auto haystack = std::string_view(
+            reinterpret_cast<const char *>(bufferData_.data()), scanLen);
+        if (haystack.find("%PDF") == std::string_view::npos) {
+          SetError("Not a PDF: missing %PDF marker");
+          return;
+        }
         qpdf.processMemoryFile(
             "input.pdf", reinterpret_cast<const char *>(bufferData_.data()),
             bufferData_.size());
