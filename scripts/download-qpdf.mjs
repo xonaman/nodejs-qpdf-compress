@@ -85,7 +85,13 @@ const cmakeArgs = [
 // force -fPIC for static library objects on Linux — CMAKE_POSITION_INDEPENDENT_CODE
 // alone is not always respected by QPDF's CMake targets
 if (process.platform === 'linux') {
-  cmakeArgs.push('-DCMAKE_C_FLAGS=-fPIC', '-DCMAKE_CXX_FLAGS=-fPIC');
+  cmakeArgs.push('-DCMAKE_C_FLAGS=-fPIC', '-DCMAKE_CXX_FLAGS=-fPIC -fvisibility=hidden');
+}
+
+if (process.platform === 'darwin') {
+  // match the addon's -fvisibility=hidden so exception typeinfo pointers are
+  // consistent and catch(std::exception&) works across the static link boundary
+  cmakeArgs.push('-DCMAKE_CXX_VISIBILITY_PRESET=hidden', '-DCMAKE_VISIBILITY_INLINES_HIDDEN=ON');
 }
 
 // point QPDF at vendored mozjpeg

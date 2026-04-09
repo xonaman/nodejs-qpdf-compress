@@ -204,6 +204,15 @@ protected:
       } catch (...) {
       }
       SetError(e.what());
+    } catch (...) {
+      // on macOS/libc++, catch(std::exception&) may fail to match QPDFExc
+      // due to typeinfo visibility mismatch between the static library and
+      // our addon compiled with -fvisibility=hidden
+      try {
+        qpdf.reset();
+      } catch (...) {
+      }
+      SetError("PDF compression failed");
     }
   }
 
