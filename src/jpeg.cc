@@ -8,6 +8,9 @@ void jpegErrorExit(j_common_ptr cinfo) {
   std::longjmp(myerr->jmpbuf, 1);
 }
 
+// suppress non-fatal warnings (e.g. "Corrupt JPEG data: N extraneous bytes")
+void jpegSilenceOutput(j_common_ptr) {}
+
 // ---------------------------------------------------------------------------
 // Lossless JPEG optimization
 // ---------------------------------------------------------------------------
@@ -22,6 +25,7 @@ static bool losslessJpegOptimizeImpl(const unsigned char *data, size_t size,
 
   srcinfo.err = jpeg_std_error(&jerr.pub);
   jerr.pub.error_exit = jpegErrorExit;
+  jerr.pub.output_message = jpegSilenceOutput;
   dstinfo.err = &jerr.pub;
 
   if (setjmp(jerr.jmpbuf)) {
@@ -95,6 +99,7 @@ static bool encodeJpegImpl(const unsigned char *pixels, int width, int height,
 
   cinfo.err = jpeg_std_error(&jerr.pub);
   jerr.pub.error_exit = jpegErrorExit;
+  jerr.pub.output_message = jpegSilenceOutput;
 
   if (setjmp(jerr.jmpbuf)) {
     jpeg_destroy_compress(&cinfo);
@@ -176,6 +181,7 @@ static int estimateJpegQualityImpl(const unsigned char *data, size_t size) {
 
   cinfo.err = jpeg_std_error(&jerr.pub);
   jerr.pub.error_exit = jpegErrorExit;
+  jerr.pub.output_message = jpegSilenceOutput;
 
   if (setjmp(jerr.jmpbuf)) {
     jpeg_destroy_decompress(&cinfo);

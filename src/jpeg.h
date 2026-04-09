@@ -15,6 +15,7 @@ struct JpegErrorMgr {
 };
 
 void jpegErrorExit(j_common_ptr cinfo);
+void jpegSilenceOutput(j_common_ptr cinfo);
 
 // rewrites Huffman tables at DCT coefficient level (2–15% savings, zero quality
 // loss)
