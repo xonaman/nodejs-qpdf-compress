@@ -1,13 +1,12 @@
 #include <napi.h>
 
-#include <algorithm>
 #include <atomic>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <string>
-#include <string_view>
 #ifdef _WIN32
 #include <io.h>
 #define F_OK 0
@@ -117,67 +116,60 @@ public:
 
 protected:
   void Execute() override {
+    // heap-allocate QPDF so we control destruction order — if processFile/
+    // processMemoryFile throws, the QPDF destructor may also throw (broken
+    // internal state), which during stack unwinding would call std::terminate.
+    auto qpdf = std::make_unique<QPDF>();
     try {
-      QPDF qpdf;
-      qpdf.setAttemptRecovery(true);
-      qpdf.setSuppressWarnings(true);
+      qpdf->setAttemptRecovery(true);
+      qpdf->setSuppressWarnings(true);
 
       if (useFile_) {
         if (access(filePath_.c_str(), F_OK) != 0) {
           SetError("Input file not found: " + filePath_);
           return;
         }
-        qpdf.processFile(filePath_.c_str());
+        qpdf->processFile(filePath_.c_str());
       } else {
-        // search for %PDF marker in the first 1024 bytes — every legitimate
-        // PDF has one, even corrupt files. pure garbage must be rejected
-        // before QPDF to avoid unrecoverable crashes in the parser.
-        size_t scanLen = std::min(bufferData_.size(), size_t{1024});
-        auto haystack = std::string_view(
-            reinterpret_cast<const char *>(bufferData_.data()), scanLen);
-        if (haystack.find("%PDF") == std::string_view::npos) {
-          SetError("Not a PDF: missing %PDF marker");
-          return;
-        }
-        qpdf.processMemoryFile(
+        qpdf->processMemoryFile(
             "input.pdf", reinterpret_cast<const char *>(bufferData_.data()),
             bufferData_.size());
       }
 
-      deduplicateImages(qpdf);
-      convertGrayscaleImages(qpdf);
-      convertBitonalImages(qpdf);
-      flattenPageTree(qpdf);
-      stripDocumentOverhead(qpdf);
+      deduplicateImages(*qpdf);
+      convertGrayscaleImages(*qpdf);
+      convertBitonalImages(*qpdf);
+      flattenPageTree(*qpdf);
+      stripDocumentOverhead(*qpdf);
 
       if (lossy_) {
         // lossy: re-encode high-quality JPEGs at lower quality
         CompressOptions opts;
         opts.skipThreshold = 65;
         opts.targetQuality = 75;
-        optimizeImages(qpdf, opts);
-        downscaleImages(qpdf, 72, 75);
+        optimizeImages(*qpdf, opts);
+        downscaleImages(*qpdf, 72, 75);
       }
 
       // lossless Huffman optimization for all existing JPEGs
-      optimizeExistingJpegs(qpdf);
-      optimizeSoftMasks(qpdf);
-      removeUnusedFonts(qpdf);
-      subsetFonts(qpdf);
-      stripIccProfiles(qpdf);
-      flattenForms(qpdf);
-      removeUnusedResources(qpdf);
-      coalesceContentStreams(qpdf);
-      minifyContentStreams(qpdf);
-      deduplicateStreams(qpdf);
-      stripEmbeddedFiles(qpdf);
-      stripJavaScript(qpdf);
+      optimizeExistingJpegs(*qpdf);
+      optimizeSoftMasks(*qpdf);
+      removeUnusedFonts(*qpdf);
+      subsetFonts(*qpdf);
+      stripIccProfiles(*qpdf);
+      flattenForms(*qpdf);
+      removeUnusedResources(*qpdf);
+      coalesceContentStreams(*qpdf);
+      minifyContentStreams(*qpdf);
+      deduplicateStreams(*qpdf);
+      stripEmbeddedFiles(*qpdf);
+      stripJavaScript(*qpdf);
       if (stripMeta_)
-        stripMetadata(qpdf);
+        stripMetadata(*qpdf);
 
       Pl_Flate::setCompressionLevel(9);
 
-      QPDFWriter writer(qpdf);
+      QPDFWriter writer(*qpdf);
       writer.setOutputMemory();
       writer.setLinearization(false);
       writer.setStreamDataMode(qpdf_s_compress);
@@ -192,6 +184,9 @@ protected:
 
       writerBuf_ = writer.getBufferSharedPointer();
 
+      // release QPDF before file I/O — no longer needed
+      qpdf.reset();
+
       if (!outputPath_.empty()) {
         auto err = writeToFile(outputPath_, writerBuf_->getBuffer(),
                                writerBuf_->getSize());
@@ -202,6 +197,12 @@ protected:
         writerBuf_.reset();
       }
     } catch (std::exception &e) {
+      // destroy QPDF inside the catch so its destructor can't cause
+      // std::terminate via a double exception during stack unwinding
+      try {
+        qpdf.reset();
+      } catch (...) {
+      }
       SetError(e.what());
     }
   }

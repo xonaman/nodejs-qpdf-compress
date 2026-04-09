@@ -253,6 +253,6 @@ describe('error handling', () => {
 
   it('rejects non-PDF buffer', async () => {
     const garbage = Buffer.from('this is not a PDF file at all');
-    await expect(compress(garbage)).rejects.toThrow('missing %PDF marker');
+    await expect(compress(garbage)).rejects.toThrow();
   });
 });
