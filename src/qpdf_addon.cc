@@ -125,28 +125,8 @@ protected:
           SetError("Input file not found: " + filePath_);
           return;
         }
-        // validate PDF header to prevent QPDF from aborting on garbage input
-        {
-          FILE *f = fopen(filePath_.c_str(), "rb");
-          if (f) {
-            char hdr[5] = {};
-            bool valid =
-                fread(hdr, 1, 5, f) >= 5 && memcmp(hdr, "%PDF-", 5) == 0;
-            fclose(f);
-            if (!valid) {
-              SetError("Input is not a valid PDF (missing %PDF- header)");
-              return;
-            }
-          }
-        }
         qpdf.processFile(filePath_.c_str());
       } else {
-        // validate PDF header to prevent QPDF from aborting on garbage input
-        if (bufferData_.size() < 5 ||
-            memcmp(bufferData_.data(), "%PDF-", 5) != 0) {
-          SetError("Input is not a valid PDF (missing %PDF- header)");
-          return;
-        }
         qpdf.processMemoryFile(
             "input.pdf", reinterpret_cast<const char *>(bufferData_.data()),
             bufferData_.size());
