@@ -110,14 +110,18 @@
                 ]
               },
               "VCLinkerTool": {
-                "LinkTimeCodeGeneration": 1
+                "LinkTimeCodeGeneration": 1,
+                "AdditionalOptions": [
+                  "/FORCE:MULTIPLE"
+                ]
               }
             },
             "libraries": [
               "<(module_root_dir)/deps/qpdf/lib/qpdf.lib",
               "<(module_root_dir)/deps/qpdf/lib/zlib.lib",
               "<(module_root_dir)/deps/mozjpeg/lib/jpeg-static.lib",
-              "<(module_root_dir)/deps/harfbuzz/lib/harfbuzz-subset.lib"
+              "<(module_root_dir)/deps/harfbuzz/lib/harfbuzz-subset.lib",
+              "<(module_root_dir)/deps/harfbuzz/lib/harfbuzz.lib"
             ]
           }
         ]
