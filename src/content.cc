@@ -50,6 +50,10 @@ static std::string trimNumber(const std::string &s) {
       result.erase(last + 1);
   }
 
+  // if trimming left an empty string or bare sign, the value was zero
+  if (result.empty() || result == "-")
+    return "0";
+
   // strip leading zero for values like "0.5" → ".5" or "-0.5" → "-.5"
   if (result.size() >= 2 && result[0] == '0' && result[1] == '.')
     result.erase(0, 1);
@@ -231,17 +235,40 @@ void minifyContentStreams(QPDF &qpdf) {
             minified += raw[pos++];
           // copy binary data verbatim until the EI end marker:
           // whitespace + "EI" + (whitespace or end-of-stream)
+          // binary image data can contain byte sequences that match this
+          // pattern, so we validate that what follows EI looks like valid
+          // content stream syntax (not more binary data)
           bool foundEI = false;
           while (pos + 2 < raw.size()) {
             if (std::isspace(static_cast<unsigned char>(raw[pos])) &&
                 raw[pos + 1] == 'E' && raw[pos + 2] == 'I' &&
                 (pos + 3 >= raw.size() ||
                  std::isspace(static_cast<unsigned char>(raw[pos + 3])))) {
-              minified += raw[pos]; // whitespace before EI
-              minified += "EI";
-              pos += 3;
-              foundEI = true;
-              break;
+              // validate: after EI + whitespace, the next non-whitespace byte
+              // must be a valid content stream token start character, not
+              // a continuation of binary image data
+              size_t check = pos + 3;
+              while (check < raw.size() &&
+                     std::isspace(static_cast<unsigned char>(raw[check])))
+                check++;
+              bool valid = (check >= raw.size());
+              if (!valid) {
+                unsigned char c = static_cast<unsigned char>(raw[check]);
+                // valid token start: letter (operator), digit/sign (number),
+                // ( (string), < (hex/dict), [ (array), / (name), % (comment)
+                valid = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                        (c >= '0' && c <= '9') || c == '+' || c == '-' ||
+                        c == '.' || c == '(' || c == '<' || c == '[' ||
+                        c == '/' || c == '%';
+              }
+              if (valid) {
+                minified += raw[pos]; // whitespace before EI
+                minified += "EI";
+                pos += 3;
+                foundEI = true;
+                break;
+              }
+              // false EI match inside binary data — continue scanning
             }
             minified += raw[pos++];
           }

@@ -7,6 +7,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <qpdf/QPDFObjectHandle.hh>
@@ -83,6 +84,174 @@ static void collectFontUsageFromStream(QPDFObjectHandle stream,
     QPDFObjectHandle::parseContentStream(stream, &collector);
   } catch (...) {
   }
+}
+
+// ---------------------------------------------------------------------------
+// /ToUnicode CMap parser — converts character codes to Unicode using the
+// font's /ToUnicode stream. handles beginbfchar, beginbfrange (scalar and
+// array forms). this is the most reliable way to map codes to Unicode.
+// ---------------------------------------------------------------------------
+
+static std::set<uint16_t> parseToUnicode(QPDFObjectHandle toUnicodeStream,
+                                         const std::set<uint16_t> &charCodes) {
+  std::set<uint16_t> unicodeCodes;
+
+  try {
+    auto data = toUnicodeStream.getStreamData(qpdf_dl_all);
+    std::string cmap(reinterpret_cast<const char *>(data->getBuffer()),
+                     data->getSize());
+
+    // helper: find <hex> value at/after pos, return parsed value and position
+    // after closing >
+    auto findHexValue = [&](size_t pos,
+                            size_t end) -> std::pair<uint16_t, size_t> {
+      size_t start = cmap.find('<', pos);
+      if (start == std::string::npos || start >= end)
+        return {0, std::string::npos};
+      size_t stop = cmap.find('>', start);
+      if (stop == std::string::npos || stop >= end)
+        return {0, std::string::npos};
+      std::string hex = cmap.substr(start + 1, stop - start - 1);
+      if (hex.empty())
+        return {0, stop + 1};
+      return {static_cast<uint16_t>(std::stoul(hex, nullptr, 16)), stop + 1};
+    };
+
+    // process beginbfchar sections: <srcCode> <dstUnicode>
+    size_t pos = 0;
+    while (true) {
+      size_t start = cmap.find("beginbfchar", pos);
+      if (start == std::string::npos)
+        break;
+      start += 11;
+      size_t end = cmap.find("endbfchar", start);
+      if (end == std::string::npos)
+        break;
+
+      size_t p = start;
+      while (p < end) {
+        auto [src, after1] = findHexValue(p, end);
+        if (after1 == std::string::npos)
+          break;
+        auto [dst, after2] = findHexValue(after1, end);
+        if (after2 == std::string::npos)
+          break;
+        if (charCodes.count(src))
+          unicodeCodes.insert(dst);
+        p = after2;
+      }
+      pos = end + 9;
+    }
+
+    // process beginbfrange sections: <lo> <hi> <dstStart> or <lo> <hi> [...]
+    pos = 0;
+    while (true) {
+      size_t start = cmap.find("beginbfrange", pos);
+      if (start == std::string::npos)
+        break;
+      start += 12;
+      size_t end = cmap.find("endbfrange", start);
+      if (end == std::string::npos)
+        break;
+
+      size_t p = start;
+      while (p < end) {
+        auto [lo, after1] = findHexValue(p, end);
+        if (after1 == std::string::npos)
+          break;
+        auto [hi, after2] = findHexValue(after1, end);
+        if (after2 == std::string::npos)
+          break;
+
+        // check for array form vs scalar form
+        size_t next = after2;
+        while (next < end &&
+               std::isspace(static_cast<unsigned char>(cmap[next])))
+          ++next;
+
+        if (next < end && cmap[next] == '[') {
+          // array form: <lo> <hi> [<v1> <v2> ...]
+          size_t arrEnd = cmap.find(']', next);
+          if (arrEnd == std::string::npos || arrEnd >= end)
+            break;
+          uint16_t code = lo;
+          size_t ap = next + 1;
+          while (ap < arrEnd && code <= hi) {
+            auto [val, afterVal] = findHexValue(ap, arrEnd);
+            if (afterVal == std::string::npos)
+              break;
+            if (charCodes.count(code))
+              unicodeCodes.insert(val);
+            ++code;
+            ap = afterVal;
+          }
+          p = arrEnd + 1;
+        } else {
+          // scalar form: <lo> <hi> <dstStart>
+          auto [dstStart, after3] = findHexValue(after2, end);
+          if (after3 == std::string::npos)
+            break;
+          for (uint16_t c = lo; c <= hi; ++c) {
+            if (charCodes.count(c))
+              unicodeCodes.insert(static_cast<uint16_t>(dstStart + (c - lo)));
+          }
+          p = after3;
+        }
+      }
+      pos = end + 10;
+    }
+  } catch (...) {
+    // parsing failed — return what we have so far
+  }
+
+  return unicodeCodes;
+}
+
+// ---------------------------------------------------------------------------
+// /Encoding /Differences parser — extract glyph names for character codes
+// that have been remapped via /Differences entries.
+// format: [code1 /name1 /name2 ... code2 /name3 ...]
+// integers set current position; names are assigned sequentially.
+// ---------------------------------------------------------------------------
+
+static std::vector<std::string>
+getGlyphNamesFromEncoding(const std::set<uint16_t> &codes,
+                          QPDFObjectHandle fontObj) {
+  std::vector<std::string> names;
+
+  auto encoding = fontObj.getKey("/Encoding");
+  if (!encoding.isDictionary())
+    return names;
+
+  auto diffs = encoding.getKey("/Differences");
+  if (!diffs.isArray())
+    return names;
+
+  // parse /Differences: integers set position, names are glyph names
+  std::map<uint16_t, std::string> codeToName;
+  int currentCode = 0;
+  for (int i = 0; i < diffs.getArrayNItems(); ++i) {
+    auto item = diffs.getArrayItem(i);
+    if (item.isInteger()) {
+      currentCode = static_cast<int>(item.getIntValue());
+    } else if (item.isName()) {
+      std::string name = item.getName();
+      // strip leading / from PDF name
+      if (!name.empty() && name[0] == '/')
+        name = name.substr(1);
+      codeToName[static_cast<uint16_t>(currentCode)] = name;
+      ++currentCode;
+    }
+  }
+
+  // return glyph names for used codes that have /Differences entries
+  for (uint16_t code : codes) {
+    auto it = codeToName.find(code);
+    if (it != codeToName.end())
+      names.push_back(it->second);
+  }
+
+  return names;
 }
 
 // ---------------------------------------------------------------------------
@@ -415,17 +584,62 @@ void optimizeFonts(QPDF &qpdf) {
 
       std::set<uint16_t> glyphIds;
 
-      // convert encoding-specific byte codes to Unicode for correct cmap
-      // lookup (e.g., WinAnsiEncoding 0x80 = € → Unicode 0x20AC)
-      auto unicodeCodes = convertCodesToUnicode(usedCodes, fontObj);
-      glyphIds = mapCodesToGlyphIds(ttfData, ttfSize, unicodeCodes);
+      // strategy 1: /ToUnicode CMap — most reliable Unicode mapping
+      auto toUnicode = fontObj.getKey("/ToUnicode");
+      if (toUnicode.isStream()) {
+        auto tuCodes = parseToUnicode(toUnicode, usedCodes);
+        if (!tuCodes.empty()) {
+          auto ids = mapCodesToGlyphIds(ttfData, ttfSize, tuCodes);
+          glyphIds.insert(ids.begin(), ids.end());
+        }
+      }
 
-      // also try raw character codes as fallback for fonts with custom
-      // encodings or /Differences where the cmap may be indexed differently
+      // strategy 2: /Encoding /Differences — glyph name lookup via post table
+      auto diffNames = getGlyphNamesFromEncoding(usedCodes, fontObj);
+      if (!diffNames.empty()) {
+        auto nameIds = mapGlyphNamesToGlyphIds(ttfData, ttfSize, diffNames);
+        glyphIds.insert(nameIds.begin(), nameIds.end());
+      }
+
+      // strategy 3: base encoding conversion (WinAnsi, MacRoman) → cmap
+      auto unicodeCodes = convertCodesToUnicode(usedCodes, fontObj);
+      auto encIds = mapCodesToGlyphIds(ttfData, ttfSize, unicodeCodes);
+      glyphIds.insert(encIds.begin(), encIds.end());
+
+      // strategy 4: raw character codes as fallback for fonts with custom
+      // encodings where the cmap may be indexed by raw byte values
       if (unicodeCodes != usedCodes) {
         auto rawGlyphs = mapCodesToGlyphIds(ttfData, ttfSize, usedCodes);
         glyphIds.insert(rawGlyphs.begin(), rawGlyphs.end());
       }
+
+      // strategy 5: standard glyph names via post table — catches fonts
+      // where glyphs have no cmap entry but are accessible by name
+      {
+        std::vector<std::string> uniNames;
+        // collect all Unicode code points from previous strategies
+        std::set<uint16_t> allUnicode;
+        allUnicode.insert(unicodeCodes.begin(), unicodeCodes.end());
+        allUnicode.insert(usedCodes.begin(), usedCodes.end());
+        for (uint16_t u : allUnicode) {
+          if (u > 0x7F) {
+            // standard "uniXXXX" glyph name convention
+            char buf[8];
+            snprintf(buf, sizeof(buf), "uni%04X", u);
+            uniNames.emplace_back(buf);
+          }
+        }
+        if (!uniNames.empty()) {
+          auto nameIds = mapGlyphNamesToGlyphIds(ttfData, ttfSize, uniNames);
+          glyphIds.insert(nameIds.begin(), nameIds.end());
+        }
+      }
+
+      // safety check: if we found fewer glyph IDs than used character codes,
+      // some characters couldn't be mapped — skip subsetting to avoid
+      // dropping visible glyphs. subtract 1 for .notdef (glyph 0).
+      if (glyphIds.size() - 1 < usedCodes.size())
+        continue;
 
       std::vector<uint8_t> subsetResult;
       if (!subsetFont(ttfData, ttfSize, glyphIds, subsetResult))

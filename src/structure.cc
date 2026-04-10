@@ -173,6 +173,13 @@ void flattenForms(QPDF &qpdf) {
       }
 
       // check if there's a normal appearance to flatten
+      // skip signature fields — their appearance should not be flattened
+      if (annot.hasKey("/FT")) {
+        auto ft = annot.getKey("/FT");
+        if (ft.isName() && ft.getName() == "/Sig")
+          continue;
+      }
+
       auto ap = annot.getKey("/AP");
       if (!ap.isDictionary())
         continue;

@@ -772,6 +772,13 @@ void optimizeColorSpaces(QPDF &qpdf) {
       auto filter = dict.getKey("/Filter");
       if (filter.isName() && filter.getName() == "/DCTDecode")
         return;
+      if (filter.isArray()) {
+        for (int i = 0; i < filter.getArrayNItems(); ++i) {
+          auto f = filter.getArrayItem(i);
+          if (f.isName() && f.getName() == "/DCTDecode")
+            return;
+        }
+      }
 
       std::shared_ptr<Buffer> streamData;
       try {
