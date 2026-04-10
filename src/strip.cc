@@ -263,9 +263,13 @@ private:
 void removeUnusedResources(QPDF &qpdf) {
   for (auto &page : QPDFPageDocumentHelper(qpdf).getAllPages()) {
     auto pageObj = page.getObjectHandle();
-    auto resources = pageObj.getKey("/Resources");
-    if (!resources.isDictionary())
+    auto inheritedRes = pageObj.getKey("/Resources");
+    if (!inheritedRes.isDictionary())
       continue;
+
+    // make a page-local copy so we don't modify shared (inherited) dicts
+    auto resources = inheritedRes.shallowCopy();
+    pageObj.replaceKey("/Resources", resources);
 
     // collect all resource names used in content streams
     ResourceCollector collector;
@@ -297,6 +301,8 @@ void removeUnusedResources(QPDF &qpdf) {
     }
 
     // remove unused entries from resource categories
+    // shallow-copy sub-dicts before modifying to avoid corrupting shared
+    // (inherited) resources that may be referenced by other pages
     static const char *categories[] = {"/ExtGState", "/ColorSpace", "/Pattern",
                                        "/Shading", "/Properties"};
 
@@ -305,25 +311,81 @@ void removeUnusedResources(QPDF &qpdf) {
       if (!dict.isDictionary())
         continue;
 
-      auto keys = dict.getKeys();
-      for (auto &key : keys) {
+      std::vector<std::string> toRemove;
+      for (auto &key : dict.getKeys()) {
         if (collector.usedNames.find(key) == collector.usedNames.end())
-          dict.removeKey(key);
+          toRemove.push_back(key);
       }
 
-      if (dict.getKeys().empty())
+      if (toRemove.empty())
+        continue;
+
+      // copy the sub-dict so we don't modify a shared parent
+      auto copy = dict.shallowCopy();
+      for (auto &key : toRemove)
+        copy.removeKey(key);
+
+      if (copy.getKeys().empty())
         resources.removeKey(category);
+      else
+        resources.replaceKey(category, copy);
     }
 
-    // remove unused XObjects
+    // remove unused XObjects, preserving indirect dependencies (e.g. SMask)
     if (xobjects.isDictionary()) {
+      // build a map from object ID to XObject name for dependency resolution
+      std::map<QPDFObjGen, std::string> objToName;
+      for (auto &key : xobjects.getKeys()) {
+        auto xobj = xobjects.getKey(key);
+        if (xobj.isIndirect())
+          objToName[xobj.getObjGen()] = key;
+      }
+
+      // mark XObjects that are dependencies of used XObjects (e.g. SMask)
+      bool changed = true;
+      while (changed) {
+        changed = false;
+        for (auto &key : xobjects.getKeys()) {
+          if (collector.usedNames.find(key) == collector.usedNames.end())
+            continue;
+          auto xobj = xobjects.getKey(key);
+          if (!xobj.isStream())
+            continue;
+          auto dict = xobj.getDict();
+          // check /SMask and /Mask references
+          for (auto &depKey : {"/SMask", "/Mask"}) {
+            auto dep = dict.getKey(depKey);
+            if (!dep.isIndirect())
+              continue;
+            auto it = objToName.find(dep.getObjGen());
+            if (it != objToName.end() &&
+                collector.usedNames.find(it->second) ==
+                    collector.usedNames.end()) {
+              collector.usedNames.insert(it->second);
+              changed = true;
+            }
+          }
+        }
+      }
+
       auto keys = xobjects.getKeys();
+      std::vector<std::string> toRemove;
       for (auto &key : keys) {
         if (collector.usedNames.find(key) == collector.usedNames.end())
-          xobjects.removeKey(key);
+          toRemove.push_back(key);
       }
-      if (xobjects.getKeys().empty())
-        resources.removeKey("/XObject");
+
+      if (!toRemove.empty()) {
+        // copy the sub-dict so we don't modify a shared parent
+        auto copy = xobjects.shallowCopy();
+        for (auto &key : toRemove)
+          copy.removeKey(key);
+
+        if (copy.getKeys().empty())
+          resources.removeKey("/XObject");
+        else
+          resources.replaceKey("/XObject", copy);
+      }
     }
   }
 }
