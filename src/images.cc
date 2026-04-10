@@ -10,6 +10,8 @@
 
 #ifdef __APPLE__
 #include <xlocale.h>
+#elif defined(_WIN32)
+#include <locale.h>
 #else
 #include <locale.h>
 #endif
@@ -22,9 +24,13 @@
 
 // locale-independent double parser for PDF content stream operands
 static double parsePdfDouble(const std::string &s) {
-  // strtod_l with "C" locale is available on macOS and glibc/musl Linux
+#ifdef _WIN32
+  static _locale_t c_locale = _create_locale(LC_NUMERIC, "C");
+  return _strtod_l(s.c_str(), nullptr, c_locale);
+#else
   static locale_t c_locale = newlocale(LC_NUMERIC_MASK, "C", (locale_t)0);
   return strtod_l(s.c_str(), nullptr, c_locale);
+#endif
 }
 
 // ---------------------------------------------------------------------------
