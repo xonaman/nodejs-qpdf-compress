@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <set>
+#include <string>
 #include <vector>
 
 // subset a font binary (TrueType or CFF/OpenType), keeping only the specified
