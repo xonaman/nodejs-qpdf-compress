@@ -1,4 +1,5 @@
 #include "images.h"
+#include "hash_utils.h"
 #include "jpeg.h"
 
 #include <algorithm>
@@ -417,10 +418,7 @@ void optimizeImages(QPDF &qpdf, const CompressOptions &opts) {
       return;
 
     // replace stream data with JPEG
-    std::string jpegStr(reinterpret_cast<char *>(jpegData.data()),
-                        jpegData.size());
-    xobj.replaceStreamData(jpegStr, QPDFObjectHandle::newName("/DCTDecode"),
-                           QPDFObjectHandle::newNull());
+    replaceWithJpeg(xobj, jpegData);
 
     // update color space to DeviceRGB if converted from CMYK/ICCBased
     if (isCMYK || !dict.getKey("/ColorSpace").isName() ||
@@ -467,13 +465,7 @@ void deduplicateImages(QPDF &qpdf) {
       auto rawData = xobj.getRawStreamData();
       size_t size = rawData->getSize();
 
-      // FNV-1a hash
-      uint64_t hash = 14695981039346656037ULL;
-      auto *p = rawData->getBuffer();
-      for (size_t i = 0; i < size; ++i) {
-        hash ^= static_cast<uint64_t>(p[i]);
-        hash *= 1099511628211ULL;
-      }
+      uint64_t hash = fnv1aHash(rawData->getBuffer(), size);
 
       hashGroups[hash].push_back({og, size, xobj});
     } catch (...) {
@@ -550,10 +542,7 @@ void optimizeExistingJpegs(QPDF &qpdf) {
       if (optimized.size() >= rawData->getSize())
         return;
 
-      std::string jpegStr(reinterpret_cast<char *>(optimized.data()),
-                          optimized.size());
-      xobj.replaceStreamData(jpegStr, QPDFObjectHandle::newName("/DCTDecode"),
-                             QPDFObjectHandle::newNull());
+      replaceWithJpeg(xobj, optimized);
     } catch (...) {
     }
   });
@@ -695,10 +684,7 @@ void downscaleImages(QPDF &qpdf, int maxDpi, int quality) {
     if (jpegData.size() >= rawData->getSize())
       return;
 
-    std::string jpegStr(reinterpret_cast<char *>(jpegData.data()),
-                        jpegData.size());
-    xobj.replaceStreamData(jpegStr, QPDFObjectHandle::newName("/DCTDecode"),
-                           QPDFObjectHandle::newNull());
+    replaceWithJpeg(xobj, jpegData);
 
     dict.replaceKey("/Width", QPDFObjectHandle::newInteger(newW));
     dict.replaceKey("/Height", QPDFObjectHandle::newInteger(newH));
@@ -716,11 +702,13 @@ void downscaleImages(QPDF &qpdf, int maxDpi, int quality) {
 }
 
 // ---------------------------------------------------------------------------
-// Grayscale detection — convert RGB images that are actually grayscale to
-// DeviceGray (1/3 the raw data size)
+// Color space optimization — single pass over all images:
+// 1. Replace ICCBased color spaces with Device equivalents
+// 2. Convert RGB images that are actually grayscale to DeviceGray
+// 3. Convert 8-bit grayscale images that are black & white to 1-bit
 // ---------------------------------------------------------------------------
 
-void convertGrayscaleImages(QPDF &qpdf) {
+void optimizeColorSpaces(QPDF &qpdf) {
   std::set<QPDFObjGen> processed;
 
   forEachImage(qpdf, [&](const std::string & /*key*/, QPDFObjectHandle xobj,
@@ -733,111 +721,37 @@ void convertGrayscaleImages(QPDF &qpdf) {
 
     auto dict = xobj.getDict();
 
-    // only handle 8-bit RGB images
-    if (!dict.getKey("/BitsPerComponent").isInteger() ||
-        dict.getKey("/BitsPerComponent").getIntValue() != 8)
-      return;
-
+    // --- phase 1: strip ICC profiles ---
     auto cs = dict.getKey("/ColorSpace");
-    if (!cs.isName() || cs.getName() != "/DeviceRGB")
-      return;
-
-    // skip JPEG-compressed images — converting to raw gray + Flate would be
-    // larger than the original JPEG. in lossy mode, optimizeImages downstream
-    // re-encodes, but in lossless mode nothing would, causing size inflation.
-    auto filter = dict.getKey("/Filter");
-    if (filter.isName() && filter.getName() == "/DCTDecode")
-      return;
-
-    int width = 0, height = 0;
-    if (dict.getKey("/Width").isInteger())
-      width = static_cast<int>(dict.getKey("/Width").getIntValue());
-    if (dict.getKey("/Height").isInteger())
-      height = static_cast<int>(dict.getKey("/Height").getIntValue());
-    if (width <= 0 || height <= 0)
-      return;
-
-    // decode pixels
-    std::shared_ptr<Buffer> streamData;
-    try {
-      streamData = xobj.getStreamData(qpdf_dl_all);
-    } catch (...) {
-      return;
-    }
-
-    auto w = static_cast<size_t>(width);
-    auto h = static_cast<size_t>(height);
-    size_t expectedSize = w * h * 3;
-    if (streamData->getSize() != expectedSize)
-      return;
-
-    const auto *pixels = streamData->getBuffer();
-    size_t pixelCount = w * h;
-
-    // check if all RGB triples have equal channels (R == G == B)
-    bool isGray = true;
-    for (size_t i = 0; i < pixelCount; ++i) {
-      auto r = pixels[i * 3 + 0];
-      auto g = pixels[i * 3 + 1];
-      auto b = pixels[i * 3 + 2];
-      if (r != g || g != b) {
-        isGray = false;
-        break;
+    if (cs.isArray() && cs.getArrayNItems() >= 2) {
+      auto csName = cs.getArrayItem(0);
+      if (csName.isName() && csName.getName() == "/ICCBased") {
+        auto profile = cs.getArrayItem(1);
+        if (profile.isStream()) {
+          auto n = profile.getDict().getKey("/N");
+          if (n.isInteger()) {
+            int components = static_cast<int>(n.getIntValue());
+            if (components == 3)
+              dict.replaceKey("/ColorSpace",
+                              QPDFObjectHandle::newName("/DeviceRGB"));
+            else if (components == 1)
+              dict.replaceKey("/ColorSpace",
+                              QPDFObjectHandle::newName("/DeviceGray"));
+            else if (components == 4)
+              dict.replaceKey("/ColorSpace",
+                              QPDFObjectHandle::newName("/DeviceCMYK"));
+          }
+        }
       }
     }
 
-    if (!isGray)
+    // re-read after potential ICC replacement
+    cs = dict.getKey("/ColorSpace");
+    if (!cs.isName())
       return;
 
-    // build grayscale pixel buffer
-    std::vector<uint8_t> grayPixels(pixelCount);
-    for (size_t i = 0; i < pixelCount; ++i)
-      grayPixels[i] = pixels[i * 3];
-
-    // replace stream with raw grayscale data (Flate-compressed by QPDFWriter)
-    std::string grayStr(reinterpret_cast<char *>(grayPixels.data()),
-                        grayPixels.size());
-    xobj.replaceStreamData(grayStr, QPDFObjectHandle::newNull(),
-                           QPDFObjectHandle::newNull());
-    dict.replaceKey("/ColorSpace", QPDFObjectHandle::newName("/DeviceGray"));
-
-    // remove JPEG-specific params
-    if (dict.hasKey("/DecodeParms"))
-      dict.removeKey("/DecodeParms");
-    if (dict.hasKey("/Predictor"))
-      dict.removeKey("/Predictor");
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Bitonal conversion — convert 8-bit grayscale images that are effectively
-// black & white (all pixels near 0 or 255) to 1-bit, saving ~8x raw data
-// ---------------------------------------------------------------------------
-
-void convertBitonalImages(QPDF &qpdf) {
-  std::set<QPDFObjGen> processed;
-
-  forEachImage(qpdf, [&](const std::string & /*key*/, QPDFObjectHandle xobj,
-                         QPDFObjectHandle /*xobjects*/,
-                         QPDFPageObjectHelper & /*page*/) {
-    auto og = xobj.getObjGen();
-    if (processed.count(og))
-      return;
-    processed.insert(og);
-
-    auto dict = xobj.getDict();
-
-    // only handle 8-bit grayscale images
     if (!dict.getKey("/BitsPerComponent").isInteger() ||
         dict.getKey("/BitsPerComponent").getIntValue() != 8)
-      return;
-
-    auto cs = dict.getKey("/ColorSpace");
-    if (!cs.isName() || cs.getName() != "/DeviceGray")
-      return;
-
-    // skip images with masks (bitonal conversion may not be safe)
-    if (dict.hasKey("/SMask") || dict.hasKey("/Mask"))
       return;
 
     int width = 0, height = 0;
@@ -848,23 +762,79 @@ void convertBitonalImages(QPDF &qpdf) {
     if (width <= 0 || height <= 0)
       return;
 
-    // decode pixels
-    std::shared_ptr<Buffer> streamData;
+    auto w = static_cast<size_t>(width);
+    auto h = static_cast<size_t>(height);
+
+    // --- phase 2: RGB → grayscale detection ---
+    if (cs.getName() == "/DeviceRGB") {
+      // skip JPEG-compressed images — converting to raw gray + Flate would be
+      // larger than the original JPEG
+      auto filter = dict.getKey("/Filter");
+      if (filter.isName() && filter.getName() == "/DCTDecode")
+        return;
+
+      std::shared_ptr<Buffer> streamData;
+      try {
+        streamData = xobj.getStreamData(qpdf_dl_all);
+      } catch (...) {
+        return;
+      }
+
+      if (streamData->getSize() != w * h * 3)
+        return;
+
+      const auto *pixels = streamData->getBuffer();
+      size_t pixelCount = w * h;
+
+      bool isGray = true;
+      for (size_t i = 0; i < pixelCount; ++i) {
+        if (pixels[i * 3] != pixels[i * 3 + 1] ||
+            pixels[i * 3 + 1] != pixels[i * 3 + 2]) {
+          isGray = false;
+          break;
+        }
+      }
+
+      if (!isGray)
+        return;
+
+      std::vector<uint8_t> grayPixels(pixelCount);
+      for (size_t i = 0; i < pixelCount; ++i)
+        grayPixels[i] = pixels[i * 3];
+
+      replaceWithRaw(xobj, grayPixels);
+      dict.replaceKey("/ColorSpace", QPDFObjectHandle::newName("/DeviceGray"));
+
+      if (dict.hasKey("/DecodeParms"))
+        dict.removeKey("/DecodeParms");
+      if (dict.hasKey("/Predictor"))
+        dict.removeKey("/Predictor");
+
+      // fall through to bitonal check on the now-gray image
+      cs = dict.getKey("/ColorSpace");
+    }
+
+    // --- phase 3: grayscale → bitonal conversion ---
+    if (cs.getName() != "/DeviceGray")
+      return;
+
+    // skip images with masks
+    if (dict.hasKey("/SMask") || dict.hasKey("/Mask"))
+      return;
+
+    std::shared_ptr<Buffer> grayData;
     try {
-      streamData = xobj.getStreamData(qpdf_dl_all);
+      grayData = xobj.getStreamData(qpdf_dl_all);
     } catch (...) {
       return;
     }
 
-    auto w = static_cast<size_t>(width);
-    auto h = static_cast<size_t>(height);
-    if (streamData->getSize() != w * h)
+    if (grayData->getSize() != w * h)
       return;
 
-    const auto *pixels = streamData->getBuffer();
+    const auto *pixels = grayData->getBuffer();
     size_t pixelCount = w * h;
 
-    // check if all pixels are near black (<=32) or near white (>=224)
     bool isBitonal = true;
     for (size_t i = 0; i < pixelCount; ++i) {
       if (pixels[i] > 32 && pixels[i] < 224) {
@@ -876,29 +846,22 @@ void convertBitonalImages(QPDF &qpdf) {
     if (!isBitonal)
       return;
 
-    // pack into 1-bit: 0 = black, 1 = white
-    // each row padded to byte boundary
     size_t rowBytes = (w + 7) / 8;
     std::vector<uint8_t> bitonalData(rowBytes * h, 0);
 
     for (size_t y = 0; y < h; ++y) {
       for (size_t x = 0; x < w; ++x) {
-        bool white = pixels[y * w + x] >= 224;
-        if (white)
+        if (pixels[y * w + x] >= 224)
           bitonalData[y * rowBytes + x / 8] |=
               static_cast<uint8_t>(0x80 >> (x % 8));
       }
     }
 
-    // only replace if 1-bit data is smaller than original raw stream
     auto rawData = xobj.getRawStreamData();
     if (bitonalData.size() >= rawData->getSize())
       return;
 
-    std::string bitStr(reinterpret_cast<char *>(bitonalData.data()),
-                       bitonalData.size());
-    xobj.replaceStreamData(bitStr, QPDFObjectHandle::newNull(),
-                           QPDFObjectHandle::newNull());
+    replaceWithRaw(xobj, bitonalData);
     dict.replaceKey("/BitsPerComponent", QPDFObjectHandle::newInteger(1));
 
     if (dict.hasKey("/DecodeParms"))
@@ -906,6 +869,43 @@ void convertBitonalImages(QPDF &qpdf) {
     if (dict.hasKey("/Predictor"))
       dict.removeKey("/Predictor");
   });
+
+  // strip ICC profiles from page-level color space resources
+  for (auto &page : QPDFPageDocumentHelper(qpdf).getAllPages()) {
+    auto resources = page.getObjectHandle().getKey("/Resources");
+    if (!resources.isDictionary())
+      continue;
+
+    auto colorSpaces = resources.getKey("/ColorSpace");
+    if (!colorSpaces.isDictionary())
+      continue;
+
+    for (auto &key : colorSpaces.getKeys()) {
+      auto cs = colorSpaces.getKey(key);
+      if (!cs.isArray() || cs.getArrayNItems() < 2)
+        continue;
+
+      auto csName = cs.getArrayItem(0);
+      if (!csName.isName() || csName.getName() != "/ICCBased")
+        continue;
+
+      auto profile = cs.getArrayItem(1);
+      if (!profile.isStream())
+        continue;
+
+      auto n = profile.getDict().getKey("/N");
+      if (!n.isInteger())
+        continue;
+
+      int components = static_cast<int>(n.getIntValue());
+      if (components == 3)
+        colorSpaces.replaceKey(key, QPDFObjectHandle::newName("/DeviceRGB"));
+      else if (components == 1)
+        colorSpaces.replaceKey(key, QPDFObjectHandle::newName("/DeviceGray"));
+      else if (components == 4)
+        colorSpaces.replaceKey(key, QPDFObjectHandle::newName("/DeviceCMYK"));
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -947,10 +947,7 @@ void optimizeSoftMasks(QPDF &qpdf) {
       if (optimized.size() >= rawData->getSize())
         return;
 
-      std::string jpegStr(reinterpret_cast<char *>(optimized.data()),
-                          optimized.size());
-      smask.replaceStreamData(jpegStr, QPDFObjectHandle::newName("/DCTDecode"),
-                              QPDFObjectHandle::newNull());
+      replaceWithJpeg(smask, optimized);
     } catch (...) {
     }
   });

@@ -2,5 +2,4 @@
 
 #include <qpdf/QPDF.hh>
 
-void removeUnusedFonts(QPDF &qpdf);
-void subsetFonts(QPDF &qpdf);
+void optimizeFonts(QPDF &qpdf);

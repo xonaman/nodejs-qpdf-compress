@@ -1,4 +1,5 @@
 #include "structure.h"
+#include "hash_utils.h"
 #include "images.h"
 
 #include <algorithm>
@@ -54,13 +55,7 @@ void deduplicateStreams(QPDF &qpdf) {
       if (size == 0)
         continue;
 
-      // FNV-1a hash
-      uint64_t hash = 14695981039346656037ULL;
-      auto *p = rawData->getBuffer();
-      for (size_t i = 0; i < size; ++i) {
-        hash ^= static_cast<uint64_t>(p[i]);
-        hash *= 1099511628211ULL;
-      }
+      uint64_t hash = fnv1aHash(rawData->getBuffer(), size);
 
       hashGroups[hash].push_back({og, size, obj});
     } catch (...) {

@@ -1,5 +1,9 @@
 #pragma once
 
+#include <cstdint>
+#include <string>
+#include <vector>
+
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFObjectHandle.hh>
 #include <qpdf/QPDFPageDocumentHelper.hh>
@@ -28,6 +32,21 @@ template <typename Fn> void forEachImage(QPDF &qpdf, Fn &&fn) {
   }
 }
 
+// replace an image XObject's stream data with JPEG-encoded bytes
+inline void replaceWithJpeg(QPDFObjectHandle xobj, std::vector<uint8_t> &data) {
+  std::string str(reinterpret_cast<char *>(data.data()), data.size());
+  xobj.replaceStreamData(str, QPDFObjectHandle::newName("/DCTDecode"),
+                         QPDFObjectHandle::newNull());
+}
+
+// replace an image XObject's stream data with raw bytes (Flate-compressed by
+// QPDFWriter)
+inline void replaceWithRaw(QPDFObjectHandle xobj, std::vector<uint8_t> &data) {
+  std::string str(reinterpret_cast<char *>(data.data()), data.size());
+  xobj.replaceStreamData(str, QPDFObjectHandle::newNull(),
+                         QPDFObjectHandle::newNull());
+}
+
 struct CompressOptions {
   int skipThreshold = 0; // skip existing JPEGs at or below this quality
   int targetQuality = 0; // encode/re-encode at this quality
@@ -37,6 +56,5 @@ void optimizeImages(QPDF &qpdf, const CompressOptions &opts);
 void downscaleImages(QPDF &qpdf, int maxDpi, int quality);
 void deduplicateImages(QPDF &qpdf);
 void optimizeExistingJpegs(QPDF &qpdf);
-void convertGrayscaleImages(QPDF &qpdf);
-void convertBitonalImages(QPDF &qpdf);
+void optimizeColorSpaces(QPDF &qpdf);
 void optimizeSoftMasks(QPDF &qpdf);

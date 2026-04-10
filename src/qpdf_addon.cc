@@ -135,14 +135,16 @@ protected:
             bufferData_.size());
       }
 
-      deduplicateImages(*qpdf);
-      convertGrayscaleImages(*qpdf);
-      convertBitonalImages(*qpdf);
+      // --- structural simplification ---
       flattenPageTree(*qpdf);
+      flattenForms(*qpdf);
       stripDocumentOverhead(*qpdf);
 
+      // --- image optimization ---
+      deduplicateImages(*qpdf);
+      optimizeColorSpaces(*qpdf);
+
       if (lossy_) {
-        // lossy: re-encode high-quality JPEGs at lower quality
         CompressOptions opts;
         opts.skipThreshold = 65;
         opts.targetQuality = 75;
@@ -150,13 +152,13 @@ protected:
         downscaleImages(*qpdf, 72, 75);
       }
 
-      // lossless Huffman optimization for all existing JPEGs
       optimizeExistingJpegs(*qpdf);
       optimizeSoftMasks(*qpdf);
-      removeUnusedFonts(*qpdf);
-      subsetFonts(*qpdf);
-      stripIccProfiles(*qpdf);
-      flattenForms(*qpdf);
+
+      // --- font optimization ---
+      optimizeFonts(*qpdf);
+
+      // --- cleanup ---
       removeUnusedResources(*qpdf);
       coalesceContentStreams(*qpdf);
       minifyContentStreams(*qpdf);

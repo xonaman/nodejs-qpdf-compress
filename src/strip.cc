@@ -1,5 +1,4 @@
 #include "strip.h"
-#include "images.h"
 
 #include <set>
 #include <string>
@@ -43,87 +42,6 @@ void stripMetadata(QPDF &qpdf) {
   // remove MarkInfo and page labels (optional metadata)
   if (root.hasKey("/MarkInfo"))
     root.removeKey("/MarkInfo");
-}
-
-// ---------------------------------------------------------------------------
-// ICC profile stripping — replace ICCBased color spaces with Device
-// equivalents
-// ---------------------------------------------------------------------------
-
-void stripIccProfiles(QPDF &qpdf) {
-  std::set<QPDFObjGen> processed;
-
-  // strip ICC profiles from images
-  forEachImage(qpdf, [&](const std::string &, QPDFObjectHandle xobj,
-                         QPDFObjectHandle, QPDFPageObjectHelper &) {
-    auto og = xobj.getObjGen();
-    if (processed.count(og))
-      return;
-    processed.insert(og);
-
-    auto dict = xobj.getDict();
-    auto cs = dict.getKey("/ColorSpace");
-
-    if (!cs.isArray() || cs.getArrayNItems() < 2)
-      return;
-
-    auto csName = cs.getArrayItem(0);
-    if (!csName.isName() || csName.getName() != "/ICCBased")
-      return;
-
-    auto profile = cs.getArrayItem(1);
-    if (!profile.isStream())
-      return;
-
-    auto n = profile.getDict().getKey("/N");
-    if (!n.isInteger())
-      return;
-
-    int components = static_cast<int>(n.getIntValue());
-    if (components == 3)
-      dict.replaceKey("/ColorSpace", QPDFObjectHandle::newName("/DeviceRGB"));
-    else if (components == 1)
-      dict.replaceKey("/ColorSpace", QPDFObjectHandle::newName("/DeviceGray"));
-    else if (components == 4)
-      dict.replaceKey("/ColorSpace", QPDFObjectHandle::newName("/DeviceCMYK"));
-  });
-
-  // strip ICC profiles from page-level color space resources
-  for (auto &page : QPDFPageDocumentHelper(qpdf).getAllPages()) {
-    auto resources = page.getObjectHandle().getKey("/Resources");
-    if (!resources.isDictionary())
-      continue;
-
-    auto colorSpaces = resources.getKey("/ColorSpace");
-    if (!colorSpaces.isDictionary())
-      continue;
-
-    for (auto &key : colorSpaces.getKeys()) {
-      auto cs = colorSpaces.getKey(key);
-      if (!cs.isArray() || cs.getArrayNItems() < 2)
-        continue;
-
-      auto csName = cs.getArrayItem(0);
-      if (!csName.isName() || csName.getName() != "/ICCBased")
-        continue;
-
-      auto profile = cs.getArrayItem(1);
-      if (!profile.isStream())
-        continue;
-
-      auto n = profile.getDict().getKey("/N");
-      if (!n.isInteger())
-        continue;
-
-      int components = static_cast<int>(n.getIntValue());
-      if (components == 3)
-        colorSpaces.replaceKey(key, QPDFObjectHandle::newName("/DeviceRGB"));
-      else if (components == 1)
-        colorSpaces.replaceKey(key, QPDFObjectHandle::newName("/DeviceGray"));
-      else if (components == 4)
-        colorSpaces.replaceKey(key, QPDFObjectHandle::newName("/DeviceCMYK"));
-    }
-  }
 }
 
 // ---------------------------------------------------------------------------
