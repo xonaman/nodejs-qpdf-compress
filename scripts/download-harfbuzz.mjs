@@ -74,6 +74,9 @@ const cmakeArgs = [
   '-DCMAKE_POSITION_INDEPENDENT_CODE=ON',
   '-DBUILD_SHARED_LIBS=OFF',
   '-DHB_BUILD_SUBSET=ON',
+  '-DHB_BUILD_RASTER=OFF',
+  '-DHB_BUILD_VECTOR=OFF',
+  '-DHB_BUILD_GPU=OFF',
   '-DHB_HAVE_FREETYPE=OFF',
   '-DHB_HAVE_GLIB=OFF',
   '-DHB_HAVE_ICU=OFF',
@@ -94,9 +97,10 @@ if (process.platform === 'win32') {
       `-DCMAKE_TOOLCHAIN_FILE=${join(vcpkgRoot, 'scripts', 'buildsystems', 'vcpkg.cmake')}`,
       `-DVCPKG_TARGET_TRIPLET=${triplet}`,
     );
-    if (triplet.startsWith('arm64')) {
-      cmakeArgs.push('-A', 'arm64');
-    }
+  }
+  const targetArch = (process.env.VCPKG_TARGET_TRIPLET || '').split('-')[0] || process.arch;
+  if (targetArch === 'arm64') {
+    cmakeArgs.push('-A', 'arm64');
   }
   cmakeArgs.push('-DCMAKE_POLICY_DEFAULT_CMP0091=NEW');
   cmakeArgs.push('-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded');

@@ -99,6 +99,9 @@ jobs:
 
       - name: Build HarfBuzz
         run: node scripts/download-harfbuzz.mjs
+        env:
+          VCPKG_ROOT: ${{ runner.os == 'Windows' && 'C:\vcpkg' || '' }}
+          VCPKG_TARGET_TRIPLET: ${{ runner.os == 'Windows' && format('{0}-windows-static', matrix.arch) || '' }}
 
       - name: Build native addon
         run: npx node-gyp rebuild --arch=${{ matrix.arch }}
@@ -153,7 +156,7 @@ jobs:
           platforms: ${{ matrix.docker-platform }}
 
       - name: Build in Docker
-        timeout-minutes: 60
+        timeout-minutes: 90
         run: |
           docker run --rm --platform ${{ matrix.docker-platform }} \
             -v "${{ github.workspace }}:/workspace" \

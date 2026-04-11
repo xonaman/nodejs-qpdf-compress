@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.2] - 2026-04-11
+
+### Fixed
+
+- **Shared FontFile2 corruption**: fonts sharing the same `/FontDescriptor` and `/FontFile2` are now subset with merged glyph IDs across all referencing font objects, preventing glyph removal needed by sibling fonts
+- **Already-subset font corruption**: fonts with `ABCDEF+` subset prefix are now skipped in width zeroing, TrueType/CID subsetting, and `/W` optimization to avoid double-processing
+- **Nested XObject font usage**: font usage collection now recursively scans Form XObjects at all nesting levels instead of only the first level
+- Removed unreliable unused font removal from `optimizeFonts` (already handled by `removeUnusedResources`)
+
 ## [0.6.1] - 2026-04-06
 
 ### Fixed

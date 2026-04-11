@@ -1,6 +1,6 @@
 {
   "name": "qpdf-compress",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Native PDF compression for Node.js, powered by QPDF",
   "license": "Apache-2.0",
   "type": "module",

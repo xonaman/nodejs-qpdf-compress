@@ -906,10 +906,6 @@ void optimizeFonts(QPDF &qpdf) {
       fontFileCID[ffOg] = true;
 
       try {
-        auto fontData = fontFile.getStreamData(qpdf_dl_all);
-        const uint8_t *rawData = fontData->getBuffer();
-        size_t rawSize = fontData->getSize();
-
         std::set<uint16_t> glyphIds;
 
         auto cidToGid = cidFont.getKey("/CIDToGIDMap");
