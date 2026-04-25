@@ -1,6 +1,6 @@
 {
   "name": "qpdf-compress",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "Native PDF compression for Node.js, powered by QPDF",
   "license": "Apache-2.0",
   "type": "module",
@@ -78,7 +78,7 @@
     "lint:check": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepare": "husky"
+    "prepare": "husky && tsc"
   },
   "lint-staged": {
     "*.{ts,js,json,md,yaml,yml}": "prettier --write",

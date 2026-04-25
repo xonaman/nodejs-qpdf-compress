@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.3] - 2026-04-26
+
+### Changed
+
+- Build TypeScript on `npm install` via `prepare` script (`husky && tsc`) so `dist/` is always rebuilt from `lib/` after install and on `npm pack`/publish, preventing stale `dist/` drift
+
 ## [0.6.2] - 2026-04-11
 
 ### Fixed
