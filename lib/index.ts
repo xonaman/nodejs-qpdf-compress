@@ -12,7 +12,9 @@ if (process.platform === 'win32') {
   process.env.PATH = `${addonDir};${process.env.PATH ?? ''}`;
 }
 
-const addon: NativeAddon = require('../build/Release/qpdf_compress.node');
+// The native addon is loaded through createRequire, so its export is `any` at
+// the module boundary; assert it to the typed surface once, here.
+const addon = require('../build/Release/qpdf_compress.node') as NativeAddon;
 
 type PdfInput = Buffer | string;
 
