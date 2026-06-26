@@ -219,7 +219,10 @@ if (process.platform === 'win32') {
   const zlibNames = ['zlib.lib', 'zlibstatic.lib'];
   const zlibSrc = zlibNames.map((n) => join(vcpkgLibDir, n)).find((p) => existsSync(p));
   if (!zlibSrc) {
-    console.error(`zlib static lib not found in ${vcpkgLibDir}. Contents:`, readdirSync(vcpkgLibDir));
+    console.error(
+      `zlib static lib not found in ${vcpkgLibDir}. Contents:`,
+      readdirSync(vcpkgLibDir),
+    );
     process.exit(1);
   }
   cpSync(zlibSrc, join(depsDir, 'lib', 'zlib.lib'));
