@@ -210,13 +210,20 @@ if (process.platform === 'win32') {
   ];
 
   const vcpkgLibDir = candidateLibDirs.find((d) => existsSync(d));
-  if (vcpkgLibDir) {
-    const src = join(vcpkgLibDir, 'zlib.lib');
-    if (existsSync(src)) {
-      cpSync(src, join(depsDir, 'lib', 'zlib.lib'));
-      console.log('Copied vcpkg zlib.lib');
-    }
+  if (!vcpkgLibDir) {
+    console.error('vcpkg lib dir not found; checked:', candidateLibDirs);
+    process.exit(1);
   }
+  // vcpkg's static zlib lib name varies across versions (zlib.lib / zlibstatic.lib);
+  // copy whichever exists to the zlib.lib name binding.gyp links against.
+  const zlibNames = ['zlib.lib', 'zlibstatic.lib'];
+  const zlibSrc = zlibNames.map((n) => join(vcpkgLibDir, n)).find((p) => existsSync(p));
+  if (!zlibSrc) {
+    console.error(`zlib static lib not found in ${vcpkgLibDir}. Contents:`, readdirSync(vcpkgLibDir));
+    process.exit(1);
+  }
+  cpSync(zlibSrc, join(depsDir, 'lib', 'zlib.lib'));
+  console.log(`Copied ${zlibSrc} -> deps/qpdf/lib/zlib.lib`);
 }
 
 // step 5: clean up source and build dirs
