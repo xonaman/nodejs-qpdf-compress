@@ -5,9 +5,13 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     permissions:
       contents: read
     strategy:
@@ -18,10 +22,12 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-2022]
         node-version: [22, 24]
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: ${{ matrix.node-version }}
+          cache: npm
 
       - name: Install system dependencies (Ubuntu)
         if: runner.os == 'Linux'
@@ -36,6 +42,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run format:check
       - run: npm run lint:check
+      - run: npm run typecheck
 
       - name: Test install script (source fallback)
         run: node scripts/install.mjs
@@ -47,6 +54,7 @@ jobs:
   prebuild:
     needs: test
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     permissions:
       contents: read
     strategy:
@@ -71,10 +79,12 @@ jobs:
             arch: arm64
             cross: true
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 22
+          cache: npm
 
       - name: Install system dependencies (Ubuntu)
         if: runner.os == 'Linux'
@@ -87,6 +97,12 @@ jobs:
           VCPKG_ROOT: C:\vcpkg
 
       - run: npm ci --ignore-scripts
+
+      - name: Cache native dependencies
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: deps
+          key: deps-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('scripts/download-mozjpeg.mjs', 'scripts/download-qpdf.mjs', 'scripts/download-harfbuzz.mjs') }}
 
       - name: Build mozjpeg
         run: node scripts/download-mozjpeg.mjs
@@ -122,7 +138,7 @@ jobs:
             build/Release/qpdf_compress.node
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: prebuild-${{ matrix.platform }}-${{ matrix.arch }}
           path: qpdf-compress-*.tar.gz
@@ -130,6 +146,7 @@ jobs:
   prebuild-linux-cross:
     needs: test
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     permissions:
       contents: read
     strategy:
@@ -151,11 +168,17 @@ jobs:
             docker-platform: linux/arm64
             image: node:22-alpine
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4
         with:
           platforms: ${{ matrix.docker-platform }}
+
+      - name: Cache native dependencies
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: deps
+          key: deps-linux-${{ matrix.platform-suffix || 'glibc' }}-${{ matrix.arch }}-${{ hashFiles('scripts/download-mozjpeg.mjs', 'scripts/download-qpdf.mjs', 'scripts/download-harfbuzz.mjs') }}
 
       - name: Build in Docker
         timeout-minutes: 90
@@ -191,7 +214,7 @@ jobs:
           fi
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: prebuild-linux-${{ matrix.platform-suffix && format('{0}-', matrix.platform-suffix) || '' }}${{ matrix.arch }}
           path: qpdf-compress-*.tar.gz
@@ -199,34 +222,38 @@ jobs:
   release:
     needs: [prebuild, prebuild-linux-cross]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     environment: npm
     permissions:
       contents: write
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+          cache: npm
 
       - run: npm ci --ignore-scripts
 
+      # Publishes tokenlessly via OIDC trusted publishing. Requires a trusted
+      # publisher to be configured for qpdf-compress on npmjs.com (Settings ->
+      # Trusted Publisher) pointing at this repo + workflow.
       - name: Publish to npm
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance
 
       - name: Download all prebuild artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: prebuild-*
           path: artifacts
           merge-multiple: true
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v4
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4
         with:
           subject-path: artifacts/*.tar.gz
 
