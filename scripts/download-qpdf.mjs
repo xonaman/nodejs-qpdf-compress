@@ -137,10 +137,13 @@ if (process.platform === 'win32') {
     // fallback misses the vcpkg tree, so point qpdf's ZLIB_*_PATH cache vars
     // straight at the vcpkg-installed static zlib (mirrors LIBJPEG_*_PATH).
     const vcpkgInstalled = join(vcpkgRoot, 'installed', triplet);
-    cmakeArgs.push(
-      `-DZLIB_H_PATH:PATH=${join(vcpkgInstalled, 'include')}`,
-      `-DZLIB_LIB_PATH:FILEPATH=${join(vcpkgInstalled, 'lib', 'zlib.lib')}`,
-    );
+    const zlibLib = ['zlib.lib', 'zs.lib', 'zlibstatic.lib']
+      .map((n) => join(vcpkgInstalled, 'lib', n))
+      .find((p) => existsSync(p));
+    cmakeArgs.push(`-DZLIB_H_PATH:PATH=${join(vcpkgInstalled, 'include')}`);
+    if (zlibLib) {
+      cmakeArgs.push(`-DZLIB_LIB_PATH:FILEPATH=${zlibLib}`);
+    }
 
     // cross-compile for ARM64 when triplet indicates it
     if (triplet.startsWith('arm64')) {
@@ -214,9 +217,9 @@ if (process.platform === 'win32') {
     console.error('vcpkg lib dir not found; checked:', candidateLibDirs);
     process.exit(1);
   }
-  // vcpkg's static zlib lib name varies across versions (zlib.lib / zlibstatic.lib);
-  // copy whichever exists to the zlib.lib name binding.gyp links against.
-  const zlibNames = ['zlib.lib', 'zlibstatic.lib'];
+  // vcpkg's static zlib lib name varies across versions (zlib.lib / zs.lib /
+  // zlibstatic.lib); copy whichever exists to the zlib.lib name binding.gyp links.
+  const zlibNames = ['zlib.lib', 'zs.lib', 'zlibstatic.lib'];
   const zlibSrc = zlibNames.map((n) => join(vcpkgLibDir, n)).find((p) => existsSync(p));
   if (!zlibSrc) {
     console.error(
