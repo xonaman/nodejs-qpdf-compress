@@ -1,0 +1,23 @@
+{
+  "qpdf": {
+    "version": "12.3.2",
+    "origin": "https://github.com",
+    "url": "https://github.com/qpdf/qpdf/releases/download/v12.3.2/qpdf-12.3.2.tar.gz",
+    "sha256": "6cba2f9f2cd887d905faeb99e0e51a307b217920d1bbf3e9cfbb2e8178a2deda",
+    "checksumSource": "official PGP-signed release manifest (qpdf-12.3.2.sha256)"
+  },
+  "harfbuzz": {
+    "version": "14.1.0",
+    "origin": "https://github.com",
+    "url": "https://github.com/harfbuzz/harfbuzz/releases/download/14.1.0/harfbuzz-14.1.0.tar.xz",
+    "sha256": "ee0eb3a1da2c5a28147f12dff55f6c7d60aeeeb29ac7ef334eabe84c8476c105",
+    "checksumSource": "self-computed from the upstream release asset (HarfBuzz publishes no checksum file)"
+  },
+  "mozjpeg": {
+    "version": "4.1.1",
+    "origin": "https://github.com",
+    "url": "https://github.com/mozilla/mozjpeg/archive/refs/tags/v4.1.1.tar.gz",
+    "sha256": "66b1b8d6b55d263f35f27f55acaaa3234df2a401232de99b6d099e2bb0a9d196",
+    "checksumSource": "self-computed from the GitHub archive tarball (mozilla/mozjpeg publishes no release asset or checksum)"
+  }
+}

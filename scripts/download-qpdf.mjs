@@ -1,11 +1,10 @@
 import { execFileSync } from 'node:child_process';
-import { createWriteStream, mkdirSync, existsSync, rmSync, cpSync, readdirSync } from 'node:fs';
-import { pipeline } from 'node:stream/promises';
-import { Readable } from 'node:stream';
+import { mkdirSync, existsSync, rmSync, cpSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { downloadFile, extractTarball, loadManifest } from './lib/integrity.mjs';
 
-const QPDF_VERSION = '12.3.2';
-const BASE_URL = 'https://github.com/qpdf/qpdf/archive/refs/tags';
+const { qpdf: dep } = loadManifest();
+const QPDF_VERSION = dep.version;
 
 const root = join(import.meta.dirname, '..');
 const depsDir = join(root, 'deps', 'qpdf');
@@ -21,27 +20,19 @@ if (!/^\d+\.\d+\.\d+$/.test(QPDF_VERSION)) {
   process.exit(1);
 }
 
-const url = `${BASE_URL}/v${QPDF_VERSION}.tar.gz`;
 const tarball = join(root, `qpdf-${QPDF_VERSION}.tar.gz`);
 const srcDir = join(root, `qpdf-${QPDF_VERSION}`);
 const buildDir = join(root, 'build-qpdf');
 
-// step 1: download
+// step 1: download (origin- and SHA-256-pinned via native-deps.json)
 console.log(`Downloading QPDF ${QPDF_VERSION}...`);
-console.log(`URL: ${url}`);
-
-const response = await fetch(url, { redirect: 'follow' });
-if (!response.ok) {
-  console.error(`Download failed: ${response.status} ${response.statusText}`);
-  process.exit(1);
-}
+console.log(`URL: ${dep.url}`);
 
 mkdirSync(join(root, 'deps'), { recursive: true });
-await pipeline(Readable.fromWeb(response.body), createWriteStream(tarball));
-
-console.log('Extracting...');
-execFileSync('tar', ['-xzf', tarball, '-C', root], { stdio: 'inherit' });
-rmSync(tarball);
+await downloadFile(dep.url, tarball, { expectedSha256: dep.sha256, allowedOrigin: dep.origin });
+console.log('Checksum verified. Extracting...');
+extractTarball(tarball, root);
+rmSync(tarball, { force: true });
 
 // GitHub archive tarballs extract to `qpdf-{tag}` (without 'v' prefix)
 // but may also be `qpdf-qpdf-{ver}` depending on repo naming — find it
