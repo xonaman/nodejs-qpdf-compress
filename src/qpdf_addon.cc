@@ -306,12 +306,11 @@ static Napi::Value Compress(const Napi::CallbackInfo &info) {
 
 static Napi::Object Init(Napi::Env env, Napi::Object exports) {
   auto *addonData = new AddonData();
+  // SetInstanceData installs a finalizer that deletes addonData on env teardown,
+  // so the cleanup hook must NOT delete it again (double free); it only flips the
+  // alive flag so in-flight workers bail out.
   env.SetInstanceData(addonData);
-  auto envAlive = addonData->envAlive;
-  env.AddCleanupHook([addonData]() {
-    addonData->envAlive->store(false);
-    delete addonData;
-  });
+  env.AddCleanupHook([addonData]() { addonData->envAlive->store(false); });
 
   exports.Set("compress", Napi::Function::New(env, Compress));
   return exports;
