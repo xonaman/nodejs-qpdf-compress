@@ -2,7 +2,7 @@ import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, expect, it, afterEach } from 'vitest';
-import { compress } from '../lib/index.js';
+import { compress, QpdfError, QpdfFileError } from '../lib/index.js';
 
 const fixtures = join(import.meta.dirname, 'fixtures');
 const minimal = readFileSync(join(fixtures, 'minimal.pdf'));
@@ -254,5 +254,19 @@ describe('error handling', () => {
   it('rejects non-PDF buffer', async () => {
     const garbage = Buffer.from('this is not a PDF file at all');
     await expect(compress(garbage)).rejects.toThrow();
+  });
+
+  it('non-existent input rejects with a typed QpdfFileError', async () => {
+    const err = await compress('/nonexistent/input.pdf').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(QpdfFileError);
+    expect(err).toBeInstanceOf(QpdfError);
+    expect((err as QpdfFileError).code).toBe('FILE');
+  });
+
+  it('a non-PDF buffer rejects with a QpdfError carrying a code', async () => {
+    const garbage = Buffer.from('this is not a PDF file at all');
+    const err = await compress(garbage).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(QpdfError);
+    expect((err as QpdfError).code).toBeTruthy();
   });
 });

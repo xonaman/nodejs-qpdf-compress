@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { withConcurrency } from './concurrency.js';
+import { parseNativeError } from './errors.js';
 import type { CompressOptions, NativeAddon } from './types.js';
 
 const require = createRequire(import.meta.url);
@@ -48,14 +49,19 @@ export async function compress(input: PdfInput, options?: CompressOptions): Prom
     throw new TypeError('Input must be a Buffer or file path string');
   }
   const stripMetadata = options?.stripMetadata ?? true;
-  return withConcurrency(() =>
-    addon.compress(input, {
-      ...(options?.lossy ? { lossy: true } : {}),
-      ...(stripMetadata ? { stripMetadata: true } : {}),
-      ...(options?.output ? { output: options.output } : {}),
-    }),
-  ) as Promise<Buffer | void>;
+  try {
+    return await withConcurrency(() =>
+      addon.compress(input, {
+        ...(options?.lossy ? { lossy: true } : {}),
+        ...(stripMetadata ? { stripMetadata: true } : {}),
+        ...(options?.output ? { output: options.output } : {}),
+      }),
+    );
+  } catch (err) {
+    throw parseNativeError(err);
+  }
 }
 
 export { concurrency } from './concurrency.js';
+export { QpdfError, QpdfFileError, QpdfFormatError, QpdfPasswordError } from './errors.js';
 export type { CompressOptions } from './types.js';

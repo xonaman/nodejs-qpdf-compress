@@ -1,6 +1,8 @@
 #include <napi.h>
 
+#include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
@@ -50,6 +52,28 @@ static std::string writeToFile(const std::string &path, const uint8_t *data,
     return "Failed to close output file: " + path + " (" +
            std::string(std::strerror(errno)) + ")";
   return {};
+}
+
+// ---------------------------------------------------------------------------
+// Error classification — prefix a native error message with a stable CODE so
+// the JS layer (parseNativeError) can map it to a typed QpdfError subclass.
+// Mirrors the "CODE:message" convention used by pdfium-native.
+// ---------------------------------------------------------------------------
+
+static std::string classifyError(const std::string &what) {
+  std::string lower = what;
+  std::transform(lower.begin(), lower.end(), lower.begin(),
+                 [](unsigned char c) { return std::tolower(c); });
+  auto has = [&](const char *needle) {
+    return lower.find(needle) != std::string::npos;
+  };
+  if (has("password") || has("encrypted"))
+    return "PASSWORD:" + what;
+  if (has("damaged") || has("not a pdf") || has("not well-formed") ||
+      has("invalid pdf") || has("corrupt") || has("xref") ||
+      has("unable to find") || has("/root"))
+    return "FORMAT:" + what;
+  return "COMPRESS:" + what;
 }
 
 // ---------------------------------------------------------------------------
@@ -125,7 +149,7 @@ protected:
 
       if (useFile_) {
         if (access(filePath_.c_str(), F_OK) != 0) {
-          SetError("Input file not found: " + filePath_);
+          SetError("FILE:Input file not found: " + filePath_);
           return;
         }
         qpdf->processFile(filePath_.c_str());
@@ -192,7 +216,7 @@ protected:
         auto err = writeToFile(outputPath_, writerBuf_->getBuffer(),
                                writerBuf_->getSize());
         if (!err.empty()) {
-          SetError(err);
+          SetError("FILE:" + err);
           return;
         }
         writerBuf_.reset();
@@ -204,7 +228,7 @@ protected:
         qpdf.reset();
       } catch (...) {
       }
-      SetError(e.what());
+      SetError(classifyError(e.what()));
     } catch (...) {
       // on macOS/libc++, catch(std::exception&) may fail to match QPDFExc
       // due to typeinfo visibility mismatch between the static library and
@@ -213,7 +237,7 @@ protected:
         qpdf.reset();
       } catch (...) {
       }
-      SetError("PDF compression failed");
+      SetError("UNKNOWN:PDF compression failed");
     }
   }
 
