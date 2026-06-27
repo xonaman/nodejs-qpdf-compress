@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-06-27
+
 ### Added
 
 - Typed error hierarchy: `QpdfError` with `QpdfFileError`, `QpdfFormatError`, and `QpdfPasswordError` subclasses for actionable compression failures
@@ -26,7 +28,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ### Security
 
 - Pin and verify the SHA-256 of every downloaded native dependency (`scripts/native-deps.json`) via a hardened downloader (timeout, retry, atomic writes, origin pinning), with an `npm run verify:checksums` tripwire
-- Added CodeQL (C/C++ and JS/TS) and OpenSSF Scorecard scanning, Dependabot updates, and a `SECURITY.md` policy
+- Added OpenSSF Scorecard scanning, Dependabot updates, and a `SECURITY.md` policy (CodeQL code scanning runs via GitHub's default setup)
 
 ### Fixed
 
@@ -191,7 +193,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - QEMU-based cross-compilation for Linux arm64/arm and musl variants
 - vcpkg integration for Windows static linking
 
-[Unreleased]: https://github.com/xonaman/nodejs-qpdf-compress/compare/v0.6.4...HEAD
+[Unreleased]: https://github.com/xonaman/nodejs-qpdf-compress/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/xonaman/nodejs-qpdf-compress/compare/v0.6.4...v0.7.0
 [0.6.4]: https://github.com/xonaman/nodejs-qpdf-compress/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/xonaman/nodejs-qpdf-compress/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/xonaman/nodejs-qpdf-compress/compare/v0.6.1...v0.6.2
