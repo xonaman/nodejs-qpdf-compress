@@ -4,6 +4,40 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Typed error hierarchy: `QpdfError` with `QpdfFileError`, `QpdfFormatError`, and `QpdfPasswordError` subclasses for actionable compression failures
+- `.nvmrc`, `.editorconfig`, and a `packageManager` field for reproducible toolchains
+- `typecheck` CI step and a weekly `windows-latest` canary job that re-tests the `windows-2022` pin
+- `./package.json` to the package `exports` map
+
+### Changed
+
+- Raised the Node.js `engines` floor to `>=22.0.0`, dropping end-of-life Node 20
+- Modernized `tsconfig`: `nodenext` module resolution, `es2023` target, and stricter type-checking (`verbatimModuleSyntax`, `exactOptionalPropertyTypes`, `noUnusedLocals`/`noUnusedParameters`, `noImplicitOverride`, `noFallthroughCasesInSwitch`)
+- Reworked ESLint to type-aware linting for `lib/`, adopted the `globals` package, and dropped `eslint-plugin-prettier`; switched coverage to Vitest's v8 provider
+- Bumped the native build to C++20 and Node-API 9 (C++ standard defined once via a gyp variable)
+- Hardened and sped up CI/CD: pinned all GitHub Actions to commit SHAs, added npm and native-dependency caching, a concurrency group, job timeouts, and top-level least-privilege permissions
+- Migrated npm publish to OIDC trusted publishing (dropped `NPM_TOKEN`)
+- Switched QPDF and HarfBuzz source downloads to byte-stable official release tarballs
+
+### Security
+
+- Pin and verify the SHA-256 of every downloaded native dependency (`scripts/native-deps.json`) via a hardened downloader (timeout, retry, atomic writes, origin pinning), with an `npm run verify:checksums` tripwire
+- Added CodeQL (C/C++ and JS/TS) and OpenSSF Scorecard scanning, Dependabot updates, and a `SECURITY.md` policy
+
+### Fixed
+
+- **Windows build**: upgraded node-gyp to 13 and dropped Node 20 from the CI matrix; pinned Windows CI to `windows-2022` to avoid the VS 2026 MSVC internal compiler error (C1001); fixed Windows zlib detection and addon linking
+
+## [0.6.4] - 2026-06-26
+
+### Fixed
+
+- **Double-free on teardown**: fixed a double free of the addon instance data during Node.js environment teardown
+
 ## [0.6.3] - 2026-04-26
 
 ### Changed
@@ -156,3 +190,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Release pipeline with prebuild generation and npm provenance
 - QEMU-based cross-compilation for Linux arm64/arm and musl variants
 - vcpkg integration for Windows static linking
+
+[Unreleased]: https://github.com/xonaman/nodejs-qpdf-compress/compare/v0.6.4...HEAD
+[0.6.4]: https://github.com/xonaman/nodejs-qpdf-compress/compare/v0.6.3...v0.6.4
+[0.6.3]: https://github.com/xonaman/nodejs-qpdf-compress/compare/v0.6.2...v0.6.3
+[0.6.2]: https://github.com/xonaman/nodejs-qpdf-compress/compare/v0.6.1...v0.6.2
+[0.6.1]: https://github.com/xonaman/nodejs-qpdf-compress/compare/v0.6.0...v0.6.1
+[0.6.0]: https://github.com/xonaman/nodejs-qpdf-compress/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/xonaman/nodejs-qpdf-compress/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/xonaman/nodejs-qpdf-compress/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/xonaman/nodejs-qpdf-compress/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/xonaman/nodejs-qpdf-compress/compare/v0.1.3...v0.2.0
+[0.1.3]: https://github.com/xonaman/nodejs-qpdf-compress/compare/v0.1.2...v0.1.3
+[0.1.2]: https://github.com/xonaman/nodejs-qpdf-compress/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/xonaman/nodejs-qpdf-compress/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/xonaman/nodejs-qpdf-compress/releases/tag/v0.1.0

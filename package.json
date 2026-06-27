@@ -43,6 +43,7 @@
     "binding.gyp",
     "README.md",
     "CHANGELOG.md",
+    "THIRD-PARTY-NOTICES.md",
     "LICENSE"
   ],
   "repository": {

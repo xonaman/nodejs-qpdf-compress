@@ -1,9 +1,10 @@
 # qpdf-compress
 
+[![CI](https://github.com/xonaman/nodejs-qpdf-compress/actions/workflows/ci.yml/badge.svg)](https://github.com/xonaman/nodejs-qpdf-compress/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/qpdf-compress)](https://www.npmjs.com/package/qpdf-compress)
 [![Node.js](https://img.shields.io/node/v/qpdf-compress)](https://nodejs.org)
 [![License](https://img.shields.io/npm/l/qpdf-compress)](https://github.com/xonaman/nodejs-qpdf-compress/blob/main/LICENSE)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-blue)]()
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-blue)](#-supported-platforms)
 
 Native PDF compression for Node.js — powered by [QPDF](https://qpdf.sourceforge.io/), the industry-standard PDF transformation library. Built as a C++ addon with N-API for ABI stability across Node.js versions.
 
@@ -40,7 +41,7 @@ const smaller = await compress(pdfBuffer, { lossy: true });
 **🔒 Reliability**
 
 - Built on QPDF — the most widely used PDF structural transformation library
-- ABI-stable via N-API — works across Node.js 18–24 without recompilation
+- ABI-stable via N-API — works across Node.js 22+ without recompilation
 - Automatic repair — damaged PDFs are reconstructed during compression
 - Apache-2.0 licensed — no AGPL/copyleft concerns
 
