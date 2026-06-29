@@ -20,7 +20,7 @@ if (!/^\d+\.\d+\.\d+$/.test(HARFBUZZ_VERSION)) {
   process.exit(1);
 }
 
-const tarball = join(root, `harfbuzz-${HARFBUZZ_VERSION}.tar.xz`);
+const tarball = join(root, `harfbuzz-${HARFBUZZ_VERSION}.tar.gz`);
 const srcDir = join(root, `harfbuzz-${HARFBUZZ_VERSION}`);
 const buildDir = join(root, 'build-harfbuzz');
 

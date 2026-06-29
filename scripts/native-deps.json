@@ -9,9 +9,9 @@
   "harfbuzz": {
     "version": "14.1.0",
     "origin": "https://github.com",
-    "url": "https://github.com/harfbuzz/harfbuzz/releases/download/14.1.0/harfbuzz-14.1.0.tar.xz",
-    "sha256": "ee0eb3a1da2c5a28147f12dff55f6c7d60aeeeb29ac7ef334eabe84c8476c105",
-    "checksumSource": "self-computed from the upstream release asset (HarfBuzz publishes no checksum file)"
+    "url": "https://github.com/harfbuzz/harfbuzz/archive/refs/tags/14.1.0.tar.gz",
+    "sha256": "9deffe9dded3c367c7d08265fd0a64193fad505a362a4889d898568c1cd46812",
+    "checksumSource": "self-computed from the GitHub git-archive tarball; HarfBuzz's only release asset is .tar.xz, whose extraction hangs Windows bsdtar — the gzip git-archive builds identically"
   },
   "mozjpeg": {
     "version": "4.1.1",

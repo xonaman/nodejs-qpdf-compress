@@ -23,7 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Bumped the native build to C++20 and Node-API 9 (C++ standard defined once via a gyp variable)
 - Hardened and sped up CI/CD: pinned all GitHub Actions to commit SHAs, added npm and native-dependency caching, a concurrency group, job timeouts, and top-level least-privilege permissions
 - Migrated npm publish to OIDC trusted publishing (dropped `NPM_TOKEN`)
-- Switched QPDF and HarfBuzz source downloads to byte-stable official release tarballs
+- Switched QPDF's source download to the official byte-stable release tarball; HarfBuzz uses the SHA-256-pinned GitHub git-archive `.tar.gz` (its only release asset is `.tar.xz`, which hangs Windows `tar` during extraction)
 
 ### Security
 

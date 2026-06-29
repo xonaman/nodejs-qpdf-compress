@@ -97,10 +97,13 @@ export async function downloadFile(url, dest, opts = {}) {
  * Extract a .tar.gz / .tar.xz into `destDir`. Compression is auto-detected.
  * Not passing `-P` keeps tar's default refusal of absolute and `..` paths;
  * `--no-same-owner` avoids restoring archived uid/gid.
+ *
+ * stdin is redirected from /dev/null: tar never reads it for `-xf`, and on
+ * Windows an inherited console stdin can deadlock a spawned decompressor.
  */
 export function extractTarball(tarball, destDir, { strip } = {}) {
   mkdirSync(destDir, { recursive: true });
   const args = ['-xf', tarball, '-C', destDir, '--no-same-owner'];
   if (strip) args.push('--strip-components', String(strip));
-  execFileSync('tar', args, { stdio: 'inherit' });
+  execFileSync('tar', args, { stdio: ['ignore', 'inherit', 'inherit'] });
 }
