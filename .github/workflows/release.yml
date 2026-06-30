@@ -44,8 +44,19 @@ jobs:
       - run: npm run lint:check
       - run: npm run typecheck
 
-      - name: Test install script (source fallback)
-        run: node scripts/install.mjs
+      - name: Cache native dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: deps
+          key: deps-${{ runner.os }}-${{ hashFiles('scripts/download-mozjpeg.mjs', 'scripts/download-qpdf.mjs', 'scripts/download-harfbuzz.mjs') }}
+
+      - name: Build dependencies and native addon
+        run: |
+          node scripts/download-mozjpeg.mjs
+          node scripts/download-qpdf.mjs
+          node scripts/download-harfbuzz.mjs
+          npx node-gyp rebuild
+          node scripts/bundle-lib.mjs
         env:
           VCPKG_ROOT: ${{ runner.os == 'Windows' && 'C:\vcpkg' || '' }}
 
