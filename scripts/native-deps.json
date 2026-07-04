@@ -7,10 +7,10 @@
     "checksumSource": "official PGP-signed release manifest (qpdf-12.3.2.sha256)"
   },
   "harfbuzz": {
-    "version": "14.1.0",
+    "version": "14.2.1",
     "origin": "https://github.com",
-    "url": "https://github.com/harfbuzz/harfbuzz/archive/refs/tags/14.1.0.tar.gz",
-    "sha256": "9deffe9dded3c367c7d08265fd0a64193fad505a362a4889d898568c1cd46812",
+    "url": "https://github.com/harfbuzz/harfbuzz/archive/refs/tags/14.2.1.tar.gz",
+    "sha256": "3c2a9006a7e1bf58737e557014d7882c554c628fb379a9f00008f5ea53dbbdfb",
     "checksumSource": "self-computed from the GitHub git-archive tarball; HarfBuzz's only release asset is .tar.xz, whose extraction hangs Windows bsdtar — the gzip git-archive builds identically"
   },
   "mozjpeg": {
