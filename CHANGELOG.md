@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-07-15
+
+### Security
+
+- Verify the downloaded prebuilt binary against a per-platform SHA-256 pin shipped in the package before use, falling back to the checksum-pinned source build on mismatch or a missing pin. Closes the prebuilt-binary trust gap where a swapped GitHub release asset could be executed unverified.
+
+### Changed
+
+- The `update-native-deps` PR body now describes `verify-checksums` as a consistency check against the same source rather than "independent" verification.
+
+### Fixed
+
+- Corrected the HarfBuzz version recorded in `THIRD-PARTY-NOTICES.md` (14.1.0 → 14.2.1) to match the pinned dependency.
+
+### Added
+
+- Hermetic test coverage for prebuilt verification and manifest generation (`test/prebuild.test.ts`).
+
 ## [0.7.0] - 2026-06-27
 
 ### Added
@@ -193,7 +211,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - QEMU-based cross-compilation for Linux arm64/arm and musl variants
 - vcpkg integration for Windows static linking
 
-[Unreleased]: https://github.com/xonaman/nodejs-qpdf-compress/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/xonaman/nodejs-qpdf-compress/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/xonaman/nodejs-qpdf-compress/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/xonaman/nodejs-qpdf-compress/compare/v0.6.4...v0.7.0
 [0.6.4]: https://github.com/xonaman/nodejs-qpdf-compress/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/xonaman/nodejs-qpdf-compress/compare/v0.6.2...v0.6.3
