@@ -9,7 +9,7 @@ full license text of each is available from the upstream project linked.
 | -------- | ------------------ | --------------------------------------------------------- | -------------------------------------- |
 | QPDF     | 12.3.2             | Apache-2.0                                                | <https://github.com/qpdf/qpdf>         |
 | mozjpeg  | 4.1.1              | BSD-3-Clause and IJG (with zlib-licensed SIMD components) | <https://github.com/mozilla/mozjpeg>   |
-| HarfBuzz | 14.1.0             | MIT ("Old MIT")                                           | <https://github.com/harfbuzz/harfbuzz> |
+| HarfBuzz | 14.2.1             | MIT ("Old MIT")                                           | <https://github.com/harfbuzz/harfbuzz> |
 | zlib     | bundled on Windows | zlib License                                              | <https://github.com/madler/zlib>       |
 
 ## Details
