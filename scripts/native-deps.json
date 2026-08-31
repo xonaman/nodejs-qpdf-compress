@@ -1,16 +1,16 @@
 {
   "qpdf": {
-    "version": "12.3.2",
+    "version": "12.4.1",
     "origin": "https://github.com",
-    "url": "https://github.com/qpdf/qpdf/releases/download/v12.3.2/qpdf-12.3.2.tar.gz",
-    "sha256": "6cba2f9f2cd887d905faeb99e0e51a307b217920d1bbf3e9cfbb2e8178a2deda",
+    "url": "https://github.com/qpdf/qpdf/releases/download/v12.4.1/qpdf-12.4.1.tar.gz",
+    "sha256": "f045aa277be2356ff53a89a8622945958291177d2483afc20ede7c8a8cd3873c",
     "checksumSource": "official PGP-signed release manifest (qpdf-12.3.2.sha256)"
   },
   "harfbuzz": {
-    "version": "14.2.1",
+    "version": "14.4.0",
     "origin": "https://github.com",
-    "url": "https://github.com/harfbuzz/harfbuzz/archive/refs/tags/14.2.1.tar.gz",
-    "sha256": "3c2a9006a7e1bf58737e557014d7882c554c628fb379a9f00008f5ea53dbbdfb",
+    "url": "https://github.com/harfbuzz/harfbuzz/archive/refs/tags/14.4.0.tar.gz",
+    "sha256": "46dc4f3b6aefc4d8256b10017186f5ebe50ea086714ab8948cdac4695a7a80a8",
     "checksumSource": "self-computed from the GitHub git-archive tarball; HarfBuzz's only release asset is .tar.xz, whose extraction hangs Windows bsdtar — the gzip git-archive builds identically"
   },
   "mozjpeg": {
