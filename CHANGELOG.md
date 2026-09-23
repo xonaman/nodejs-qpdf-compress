@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-23
+
+### Fixed
+
+- **Embedded file stripping removed the lookup path but not the file.** Only the `/EmbeddedFiles` name tree was cleared, while the `/AF` associated-files array (PDF/A-3, PDF 2.0) and `/FileAttachment` annotations kept their own reference to the same file specification. The attachment therefore stayed in the output and was recoverable in full, while readers that resolve attachments by name — pdfium among them — no longer found it: the removal did not remove, and a legitimate consumer lost access. All three paths are now cleared, so the writer drops the file specification and its stream as unreferenced. ([#34](https://github.com/xonaman/nodejs-qpdf-compress/issues/34))
+
+### Added
+
+- `stripAttachments` option (default `true`, matching previous behaviour) to keep embedded file attachments. Hybrid invoices (ZUGFeRD / Factur-X) carry the invoice itself as an attachment, so `compress(pdf, { stripAttachments: false })` is what keeps such a document machine-readable. Note that the output is still not a conforming PDF/A-3: output intents and structure information are dropped in every mode.
+- A `with-attachment.pdf` fixture whose attachment is reachable through all three paths, and tests that search decompressed stream contents rather than raw bytes — with object streams on, a byte search can miss an attachment that is entirely intact.
+
 ## [0.7.1] - 2026-07-15
 
 ### Security
