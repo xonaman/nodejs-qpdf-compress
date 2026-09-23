@@ -424,6 +424,83 @@ function buildImagePdf(imgW, imgH, imgStream, colorSpace, mediaBox) {
 }
 
 // ---------------------------------------------------------------------------
+// 8. PDF with an embedded file attachment
+//
+// The attachment is reachable three ways — the /EmbeddedFiles name tree, the
+// catalog and page /AF arrays, and a /FileAttachment annotation — so a strip
+// that misses one of them leaves the payload in place and recoverable.
+// ---------------------------------------------------------------------------
+
+const ATTACHMENT_MARKER = 'X-QPDF-COMPRESS-EMBEDDED-FILE-7f3a9c';
+
+function createPdfWithAttachment() {
+  const objects = [];
+
+  const attachment =
+    '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    `<Invoice><Marker>${ATTACHMENT_MARKER}</Marker></Invoice>\n`;
+
+  objects.push(
+    '1 0 obj\n<< /Type /Catalog /Pages 2 0 R\n' +
+      '   /Names << /EmbeddedFiles << /Names [(invoice.xml) 6 0 R] >> >>\n' +
+      '   /AF [6 0 R] >>\nendobj',
+  );
+  objects.push('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj');
+  objects.push(
+    '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]\n' +
+      '   /Resources << /Font << /F1 4 0 R >> >>\n' +
+      '   /Contents 5 0 R /Annots [7 0 R 9 0 R] /AF [6 0 R] >>\nendobj',
+  );
+  objects.push('4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj');
+
+  const content = 'BT /F1 12 Tf 100 700 Td (Attachment test) Tj ET';
+  objects.push(`5 0 obj\n<< /Length ${content.length} >>\nstream\n${content}\nendstream\nendobj`);
+
+  // file specification — referenced by the name tree, both /AF arrays, and the
+  // annotation below
+  objects.push(
+    '6 0 obj\n<< /Type /Filespec /F (invoice.xml) /UF (invoice.xml)\n' +
+      '   /Desc (Embedded invoice) /AFRelationship /Data\n' +
+      '   /EF << /F 8 0 R >> >>\nendobj',
+  );
+
+  objects.push(
+    '7 0 obj\n<< /Type /Annot /Subtype /FileAttachment /Rect [100 100 120 120]\n' +
+      '   /FS 6 0 R /Name /PushPin >>\nendobj',
+  );
+
+  objects.push(
+    `8 0 obj\n<< /Type /EmbeddedFile /Subtype /text#2Fxml /Length ${attachment.length} >>\n` +
+      `stream\n${attachment}\nendstream\nendobj`,
+  );
+
+  // an unrelated annotation that must survive the strip
+  objects.push(
+    '9 0 obj\n<< /Type /Annot /Subtype /Link /Rect [200 100 260 120]\n' +
+      '   /Border [0 0 0] /A << /S /URI /URI (https://example.invalid/) >> >>\nendobj',
+  );
+
+  let body = '';
+  const offsets = [];
+  const header = '%PDF-1.7\n';
+
+  for (const obj of objects) {
+    offsets.push(header.length + body.length);
+    body += obj + '\n';
+  }
+
+  const xrefOffset = header.length + body.length;
+  let xref = `xref\n0 ${objects.length + 1}\n`;
+  xref += '0000000000 65535 f \n';
+  for (const off of offsets) {
+    xref += String(off).padStart(10, '0') + ' 00000 n \n';
+  }
+
+  const trailer = `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  return Buffer.from(header + body + xref + trailer);
+}
+
+// ---------------------------------------------------------------------------
 // Write new fixtures
 // ---------------------------------------------------------------------------
 
@@ -438,5 +515,8 @@ console.log('Created with-metadata.pdf');
 
 writeFileSync(join(fixturesDir, 'unused-fonts.pdf'), createPdfWithUnusedFonts());
 console.log('Created unused-fonts.pdf');
+
+writeFileSync(join(fixturesDir, 'with-attachment.pdf'), createPdfWithAttachment());
+console.log('Created with-attachment.pdf');
 
 console.log('All fixtures created.');

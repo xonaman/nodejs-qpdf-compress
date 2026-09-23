@@ -71,7 +71,7 @@ const smaller = await compress(pdfBuffer, { lossy: true });
 | Form flattening           | ✅ Automatic          | ❌                | ❌                |
 | Stream deduplication      | ✅ Automatic          | ❌                | ❌                |
 | Content minification      | ✅ Automatic          | ❌                | ❌                |
-| JS/embedded file removal  | ✅ Automatic          | ❌                | ❌                |
+| JS/embedded file removal  | ✅ Default on         | ❌                | ❌                |
 | Metadata stripping        | ✅ Default on         | ✅ Manual flag    | ✅                |
 | PDF repair                | ✅ Automatic          | ✅ Manual flag    | ⚠️ Partial        |
 | License                   | Apache-2.0            | Apache-2.0        | AGPL-3.0 ⚠️       |
@@ -131,6 +131,9 @@ const smaller = await compress(pdfBuffer, { lossy: true });
 // keep metadata (stripped by default)
 const withMeta = await compress(pdfBuffer, { stripMetadata: false });
 
+// keep embedded file attachments (stripped by default)
+const withAttachments = await compress(pdfBuffer, { stripAttachments: false });
+
 // file path input (avoids copying into memory twice)
 const result = await compress('/path/to/file.pdf');
 
@@ -149,12 +152,15 @@ const fixed = await compress(damagedBuffer);
 
 Compresses a PDF document. Automatically repairs damaged PDFs.
 
-| Parameter               | Type               | Description                                                         |
-| ----------------------- | ------------------ | ------------------------------------------------------------------- |
-| `input`                 | `Buffer \| string` | PDF data or file path                                               |
-| `options.lossy`         | `boolean`          | Enable lossy compression. Default: `false`                          |
-| `options.stripMetadata` | `boolean`          | Remove XMP metadata, document info, and thumbnails. Default: `true` |
-| `options.output`        | `string`           | Write to file path instead of returning a `Buffer`                  |
+| Parameter                  | Type               | Description                                                         |
+| -------------------------- | ------------------ | ------------------------------------------------------------------- |
+| `input`                    | `Buffer \| string` | PDF data or file path                                               |
+| `options.lossy`            | `boolean`          | Enable lossy compression. Default: `false`                          |
+| `options.stripMetadata`    | `boolean`          | Remove XMP metadata, document info, and thumbnails. Default: `true` |
+| `options.stripAttachments` | `boolean`          | Remove embedded file attachments. Default: `true`                   |
+| `options.output`           | `string`           | Write to file path instead of returning a `Buffer`                  |
+
+> **Hybrid invoices (ZUGFeRD / Factur-X)**: the invoice XML rides along as an attachment, so the defaults remove it. Pass `stripAttachments: false` to keep the attachment and every path readers look it up through. The result is still not a conforming PDF/A-3 — output intents and structure information are dropped in every mode, and XMP metadata too unless `stripMetadata: false` — so a file that has to stay conformant should not be compressed at all.
 
 **Both modes:**
 
@@ -170,7 +176,8 @@ Compresses a PDF document. Automatically repairs damaged PDFs.
 - Flattens page tree (pushes inherited attributes to pages)
 - Coalesces multiple content streams per page into one
 - Minifies content streams (whitespace normalization, numeric formatting)
-- Strips embedded files and JavaScript actions
+- Strips embedded file attachments and every path to them — the `/EmbeddedFiles` name tree, `/AF` associated-file arrays, and `/FileAttachment` annotations (default: on)
+- Strips JavaScript actions
 - Recompresses all decodable streams with Flate level 9
 - Generates object streams for smaller metadata overhead
 - Removes unreferenced objects
@@ -231,9 +238,10 @@ All operations run in a background thread via `Napi::AsyncWorker`, so the event 
 13. Coalesce multiple content streams per page
 14. Minify content streams
 15. Deduplicate identical non-image streams
-16. Strip embedded files and JavaScript
-17. _(optional)_ Strip metadata
-18. QPDFWriter: Flate 9, object streams, unreferenced object removal
+16. _(optional)_ Strip embedded file attachments
+17. Strip JavaScript
+18. _(optional)_ Strip metadata
+19. QPDFWriter: Flate 9, object streams, unreferenced object removal
 
 ## License
 

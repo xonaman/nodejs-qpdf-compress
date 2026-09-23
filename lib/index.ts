@@ -27,6 +27,11 @@ type PdfInput = Buffer | string;
  * JPEG Huffman tables, recompresses all streams with Flate level 9,
  * generates object streams, and removes unreferenced objects.
  *
+ * Embedded file attachments are removed by default, along with every path
+ * they are reachable through. Pass `stripAttachments: false` to keep them —
+ * needed for hybrid invoices (ZUGFeRD / Factur-X), where the attachment is
+ * the document's payload rather than a rider on it.
+ *
  * With `lossy: true`, uses more aggressive image re-encoding (skips JPEGs
  * at q65 or below, re-encodes the rest at q75) and downscales to 72 DPI.
  * Text, vectors, and fonts are preserved.
@@ -49,11 +54,13 @@ export async function compress(input: PdfInput, options?: CompressOptions): Prom
     throw new TypeError('Input must be a Buffer or file path string');
   }
   const stripMetadata = options?.stripMetadata ?? true;
+  const stripAttachments = options?.stripAttachments ?? true;
   try {
     return await withConcurrency(() =>
       addon.compress(input, {
         ...(options?.lossy ? { lossy: true } : {}),
         ...(stripMetadata ? { stripMetadata: true } : {}),
+        ...(stripAttachments ? { stripAttachments: true } : {}),
         ...(options?.output ? { output: options.output } : {}),
       }),
     );

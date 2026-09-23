@@ -101,18 +101,18 @@ class CompressWorker : public Napi::AsyncWorker {
 public:
   // buffer variant
   CompressWorker(Napi::Env env, std::vector<uint8_t> data, bool lossy,
-                 bool stripMeta, std::string outputPath)
+                 bool stripMeta, bool stripAttach, std::string outputPath)
       : Napi::AsyncWorker(env), deferred_(Napi::Promise::Deferred::New(env)),
         envAlive_(GetEnvAlive(env)), bufferData_(std::move(data)),
-        lossy_(lossy), stripMeta_(stripMeta), useFile_(false),
-        outputPath_(std::move(outputPath)) {}
+        lossy_(lossy), stripMeta_(stripMeta), stripAttach_(stripAttach),
+        useFile_(false), outputPath_(std::move(outputPath)) {}
 
   // file path variant
   CompressWorker(Napi::Env env, std::string path, bool lossy, bool stripMeta,
-                 std::string outputPath)
+                 bool stripAttach, std::string outputPath)
       : Napi::AsyncWorker(env), deferred_(Napi::Promise::Deferred::New(env)),
         envAlive_(GetEnvAlive(env)), filePath_(std::move(path)), lossy_(lossy),
-        stripMeta_(stripMeta), useFile_(true),
+        stripMeta_(stripMeta), stripAttach_(stripAttach), useFile_(true),
         outputPath_(std::move(outputPath)) {}
 
   Napi::Promise Promise() { return deferred_.Promise(); }
@@ -187,7 +187,8 @@ protected:
       coalesceContentStreams(*qpdf);
       minifyContentStreams(*qpdf);
       deduplicateStreams(*qpdf);
-      stripEmbeddedFiles(*qpdf);
+      if (stripAttach_)
+        stripEmbeddedFiles(*qpdf);
       stripJavaScript(*qpdf);
       if (stripMeta_)
         stripMetadata(*qpdf);
@@ -267,6 +268,7 @@ private:
   std::string filePath_;
   bool lossy_;
   bool stripMeta_;
+  bool stripAttach_;
   bool useFile_;
   std::string outputPath_;
   std::shared_ptr<Buffer> writerBuf_;
@@ -287,6 +289,7 @@ static Napi::Value Compress(const Napi::CallbackInfo &info) {
 
   bool lossy = false;
   bool stripMeta = false;
+  bool stripAttach = false;
   std::string outputPath;
 
   if (info.Length() >= 2 && info[1].IsObject()) {
@@ -298,6 +301,9 @@ static Napi::Value Compress(const Napi::CallbackInfo &info) {
     if (options.Has("stripMetadata"))
       stripMeta = options.Get("stripMetadata").As<Napi::Boolean>().Value();
 
+    if (options.Has("stripAttachments"))
+      stripAttach = options.Get("stripAttachments").As<Napi::Boolean>().Value();
+
     if (options.Has("output"))
       outputPath = options.Get("output").As<Napi::String>().Utf8Value();
   }
@@ -306,7 +312,7 @@ static Napi::Value Compress(const Napi::CallbackInfo &info) {
     auto buf = info[0].As<Napi::Buffer<uint8_t>>();
     std::vector<uint8_t> data(buf.Data(), buf.Data() + buf.Length());
     auto *worker = new CompressWorker(env, std::move(data), lossy, stripMeta,
-                                      std::move(outputPath));
+                                      stripAttach, std::move(outputPath));
     worker->Queue();
     return worker->Promise();
   }
@@ -314,7 +320,7 @@ static Napi::Value Compress(const Napi::CallbackInfo &info) {
   if (info[0].IsString()) {
     auto path = info[0].As<Napi::String>().Utf8Value();
     auto *worker = new CompressWorker(env, std::move(path), lossy, stripMeta,
-                                      std::move(outputPath));
+                                      stripAttach, std::move(outputPath));
     worker->Queue();
     return worker->Promise();
   }

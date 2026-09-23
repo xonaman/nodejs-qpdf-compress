@@ -2,6 +2,7 @@
 
 #include <set>
 #include <string>
+#include <vector>
 
 #include <qpdf/QPDFObjectHandle.hh>
 #include <qpdf/QPDFPageDocumentHelper.hh>
@@ -45,24 +46,69 @@ void stripMetadata(QPDF &qpdf) {
 }
 
 // ---------------------------------------------------------------------------
-// Embedded file stripping — remove /EmbeddedFiles from the name tree
+// Embedded file stripping — remove every path an attachment is reachable
+// through
 // ---------------------------------------------------------------------------
 
+static void removeAssociatedFiles(QPDFObjectHandle obj) {
+  auto dict = obj.isStream() ? obj.getDict() : obj;
+  if (dict.isDictionary() && dict.hasKey("/AF"))
+    dict.removeKey("/AF");
+}
+
+// an embedded file stream is reachable three ways: the /EmbeddedFiles name
+// tree, an /AF associated-files array (PDF/A-3 and PDF 2.0), and a
+// /FileAttachment annotation. Dropping only the name tree leaves the payload
+// in the file and fully recoverable while hiding it from readers that look
+// attachments up by name, so all three have to go — once nothing references
+// the file specification, the writer drops it and its stream as unreferenced.
 void stripEmbeddedFiles(QPDF &qpdf) {
   auto root = qpdf.getRoot();
-  if (!root.hasKey("/Names"))
-    return;
 
-  auto names = root.getKey("/Names");
-  if (!names.isDictionary())
-    return;
+  if (root.hasKey("/Names")) {
+    auto names = root.getKey("/Names");
+    if (names.isDictionary()) {
+      if (names.hasKey("/EmbeddedFiles"))
+        names.removeKey("/EmbeddedFiles");
 
-  if (names.hasKey("/EmbeddedFiles"))
-    names.removeKey("/EmbeddedFiles");
+      // if /Names is now empty, remove it too
+      if (names.getKeys().empty())
+        root.removeKey("/Names");
+    }
+  }
 
-  // if /Names is now empty, remove it too
-  if (names.getKeys().empty())
-    root.removeKey("/Names");
+  // /AF may hang off the catalog, a page, an XObject, or an annotation
+  for (auto &obj : qpdf.getAllObjects())
+    removeAssociatedFiles(obj);
+
+  for (auto &page : QPDFPageDocumentHelper(qpdf).getAllPages()) {
+    auto pageObj = page.getObjectHandle();
+    auto annots = pageObj.getKey("/Annots");
+    if (!annots.isArray())
+      continue;
+
+    std::vector<QPDFObjectHandle> kept;
+    for (int i = 0; i < annots.getArrayNItems(); ++i) {
+      auto annot = annots.getArrayItem(i);
+      // a directly embedded annotation dictionary is not an object of its own,
+      // so the sweep above does not reach it
+      removeAssociatedFiles(annot);
+      if (annot.isDictionary()) {
+        auto subtype = annot.getKey("/Subtype");
+        if (subtype.isName() && subtype.getName() == "/FileAttachment")
+          continue;
+      }
+      kept.push_back(annot);
+    }
+
+    if (static_cast<int>(kept.size()) == annots.getArrayNItems())
+      continue;
+
+    if (kept.empty())
+      pageObj.removeKey("/Annots");
+    else
+      pageObj.replaceKey("/Annots", QPDFObjectHandle::newArray(kept));
+  }
 }
 
 // ---------------------------------------------------------------------------

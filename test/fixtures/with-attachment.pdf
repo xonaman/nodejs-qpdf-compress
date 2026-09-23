@@ -1,0 +1,61 @@
+%PDF-1.7
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R
+   /Names << /EmbeddedFiles << /Names [(invoice.xml) 6 0 R] >> >>
+   /AF [6 0 R] >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]
+   /Resources << /Font << /F1 4 0 R >> >>
+   /Contents 5 0 R /Annots [7 0 R 9 0 R] /AF [6 0 R] >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Length 47 >>
+stream
+BT /F1 12 Tf 100 700 Td (Attachment test) Tj ET
+endstream
+endobj
+6 0 obj
+<< /Type /Filespec /F (invoice.xml) /UF (invoice.xml)
+   /Desc (Embedded invoice) /AFRelationship /Data
+   /EF << /F 8 0 R >> >>
+endobj
+7 0 obj
+<< /Type /Annot /Subtype /FileAttachment /Rect [100 100 120 120]
+   /FS 6 0 R /Name /PushPin >>
+endobj
+8 0 obj
+<< /Type /EmbeddedFile /Subtype /text#2Fxml /Length 112 >>
+stream
+<?xml version="1.0" encoding="UTF-8"?>
+<Invoice><Marker>X-QPDF-COMPRESS-EMBEDDED-FILE-7f3a9c</Marker></Invoice>
+
+endstream
+endobj
+9 0 obj
+<< /Type /Annot /Subtype /Link /Rect [200 100 260 120]
+   /Border [0 0 0] /A << /S /URI /URI (https://example.invalid/) >> >>
+endobj
+xref
+0 10
+0000000000 65535 f 
+0000000009 00000 n 
+0000000139 00000 n 
+0000000196 00000 n 
+0000000362 00000 n 
+0000000432 00000 n 
+0000000529 00000 n 
+0000000673 00000 n 
+0000000784 00000 n 
+0000000988 00000 n 
+trailer
+<< /Size 10 /Root 1 0 R >>
+startxref
+1129
+%%EOF

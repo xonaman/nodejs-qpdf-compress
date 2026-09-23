@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { inflateSync } from 'node:zlib';
 import { describe, expect, it, afterEach } from 'vitest';
 import { compress, QpdfError, QpdfFileError } from '../lib/index.js';
 
@@ -12,6 +13,35 @@ const cmykImage = readFileSync(join(fixtures, 'cmyk-image.pdf'));
 const highDpiImage = readFileSync(join(fixtures, 'high-dpi-image.pdf'));
 const withMetadata = readFileSync(join(fixtures, 'with-metadata.pdf'));
 const unusedFonts = readFileSync(join(fixtures, 'unused-fonts.pdf'));
+const withAttachment = readFileSync(join(fixtures, 'with-attachment.pdf'));
+
+// the payload of the embedded file in with-attachment.pdf (see create-fixtures.mjs)
+const attachmentMarker = 'X-QPDF-COMPRESS-EMBEDDED-FILE-7f3a9c';
+
+// output is written with object streams and Flate-compressed stream data, so a
+// raw byte search misses content that is entirely intact. Search the literal
+// bytes plus the decompressed contents of every stream.
+function searchableText(pdf: Buffer): string {
+  const parts = [pdf.toString('latin1')];
+  for (let at = 0; ;) {
+    const found = pdf.indexOf('stream', at);
+    if (found === -1) break;
+    at = found + 6;
+    if (pdf.subarray(found - 3, found).toString('latin1') === 'end') continue;
+    let start = at;
+    if (pdf[start] === 0x0d) start++;
+    if (pdf[start] === 0x0a) start++;
+    const end = pdf.indexOf('endstream', start);
+    if (end === -1) break;
+    try {
+      parts.push(inflateSync(pdf.subarray(start, end)).toString('latin1'));
+    } catch {
+      // not a Flate stream (or not decodable on its own) — the literal bytes
+      // are already covered above
+    }
+  }
+  return parts.join('\n');
+}
 
 // track temp files for cleanup
 const tempFiles: string[] = [];
@@ -243,6 +273,50 @@ describe('unused font removal', () => {
     // compress again to confirm it's a valid, processable PDF
     const recompressed = await compress(result);
     expect(Buffer.isBuffer(recompressed)).toBe(true);
+  });
+});
+
+describe('embedded file stripping', () => {
+  it('the fixture carries an attachment the search can see', () => {
+    const text = searchableText(withAttachment);
+    expect(text).toContain(attachmentMarker);
+    expect(text).toContain('/EmbeddedFiles');
+    expect(text).toContain('/AFRelationship');
+    expect(text).toContain('/FileAttachment');
+  });
+
+  it('leaves unrelated annotations alone', async () => {
+    const stripped = searchableText(await compress(withAttachment));
+    const kept = searchableText(await compress(withAttachment, { stripAttachments: false }));
+    expect(stripped).toContain('example.invalid');
+    expect(kept).toContain('example.invalid');
+  });
+
+  it('strips the attachment by default', async () => {
+    const text = searchableText(await compress(withAttachment));
+    expect(text).not.toContain(attachmentMarker);
+  });
+
+  it('removes every path to the attachment, not just the name tree', async () => {
+    const text = searchableText(await compress(withAttachment));
+    expect(text).not.toContain('/EmbeddedFiles');
+    expect(text).not.toContain('/AFRelationship');
+    expect(text).not.toContain('/FileAttachment');
+  });
+
+  it('keeps the attachment and its lookup paths when stripAttachments is false', async () => {
+    const text = searchableText(await compress(withAttachment, { stripAttachments: false }));
+    expect(text).toContain(attachmentMarker);
+    expect(text).toContain('/EmbeddedFiles');
+    expect(text).toContain('/AFRelationship');
+  });
+
+  it('produces a valid PDF in both modes', async () => {
+    const stripped = await compress(withAttachment);
+    const kept = await compress(withAttachment, { stripAttachments: false });
+    expect(stripped.subarray(0, 5).toString()).toBe('%PDF-');
+    expect(kept.subarray(0, 5).toString()).toBe('%PDF-');
+    expect(kept.length).toBeGreaterThan(stripped.length);
   });
 });
 
