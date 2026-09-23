@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Fixed
+
+- **The release workflow published releases without their prebuilt binaries.** `gh release create <tag> <assets>` publishes the release and then uploads, and GitHub's immutable releases reject an upload to a published release — with a 422 that `gh` does not surface, so the step went green with nothing attached. `install.mjs` reads the prebuilts off the release, so every consumer of such a version is sent to a source build. The release is now created as a draft with the tarballs attached and published afterwards, and a following step fails the job unless every artifact made it onto the release.
+
 ### Added
 
 - `npm run verify:pdfa` — a PDF/A conformance harness. It validates `compress()` output against veraPDF, the reference validator, over a real ZUGFeRD PDF/A-3a invoice, and compares the failing clauses to a recorded baseline (`scripts/pdfa-baseline.json`), failing on any difference in either direction so that neither a regression nor an improvement passes unnoticed. CI runs it on Linux / Node 22. veraPDF is GPL-3.0 / MPL-2.0 and is run as an external container pinned by digest — never vendored or linked. Groundwork for [#35](https://github.com/xonaman/nodejs-qpdf-compress/issues/35).
