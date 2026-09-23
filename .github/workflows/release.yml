@@ -292,9 +292,9 @@ jobs:
         with:
           subject-path: artifacts/*.tar.gz
 
-      # Immutable releases freeze a release the moment it is published, so the
-      # tarballs have to be attached while it is still a draft — publishing first
-      # and uploading after gets a 422 that `gh release create` does not surface.
+      # Immutable releases freeze a release the moment it is published, and an
+      # upload to a frozen release is rejected with a 422. Attaching the tarballs
+      # while the release is still a draft keeps the upload clear of that edge.
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -302,17 +302,22 @@ jobs:
           gh release create "${{ github.ref_name }}" artifacts/*.tar.gz --draft --generate-notes
           gh release edit "${{ github.ref_name }}" --draft=false
 
-      # install.mjs reads the prebuilts off the release, so a release that
-      # publishes without them sends every consumer to a source build. That
-      # failed silently once; it does not get to again.
-      - name: Verify release assets
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # install.mjs reads the prebuilts off the release, so a release that goes out
+      # without them sends every consumer to a source build. Counting the REST
+      # assets array does not answer that — it reads empty for immutable releases
+      # whose files are served perfectly well — so check the download URLs that
+      # install.mjs actually fetches.
+      - name: Verify release assets are downloadable
         run: |
-          expected=$(ls artifacts/*.tar.gz | wc -l | tr -d ' ')
-          actual=$(gh release view "${{ github.ref_name }}" --json assets --jq '.assets | length')
-          echo "prebuilt assets: expected $expected, attached $actual"
-          if [ "$expected" -ne "$actual" ]; then
+          status=0
+          for file in artifacts/*.tar.gz; do
+            name=$(basename "$file")
+            url="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$name"
+            code=$(curl -sIL -o /dev/null -w '%{http_code}' "$url")
+            echo "  $code  $name"
+            [ "$code" = "200" ] || status=1
+          done
+          if [ "$status" -ne 0 ]; then
             echo "::error::Release ${{ github.ref_name }} is missing prebuilt binaries"
             exit 1
           fi

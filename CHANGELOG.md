@@ -6,11 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
-## [0.8.1] - 2026-09-23
-
 ### Fixed
 
-- **The release workflow published releases without their prebuilt binaries.** `gh release create <tag> <assets>` publishes the release and then uploads, and GitHub's immutable releases reject an upload to a published release — with a 422 that `gh` does not surface, so the step went green with nothing attached. `install.mjs` reads the prebuilts off the release, so every consumer of such a version is sent to a source build. The release is now created as a draft with the tarballs attached and published afterwards, and a following step fails the job unless every artifact made it onto the release. **0.8.0 is affected and should be skipped** — it installs only where a C++ toolchain is present. It is deprecated on npm in favour of this release.
+- **Correction to the 0.8.1 release notes.** 0.8.1 shipped with an entry claiming that 0.8.0 had been published without its prebuilt binaries and should be skipped. That was wrong. The REST `assets` array reads empty for releases flagged immutable, and an empty array was mistaken for missing files. Every 0.8.0 tarball is attached and downloadable, each one's SHA-256 matches the pin shipped inside the npm package, and `npm install qpdf-compress@0.8.0` installs the prebuilt binary without compiling anything. **0.8.0 is fine to use and is not deprecated.**
+
+## [0.8.1] - 2026-09-23
+
+### Changed
+
+- The release workflow attaches the prebuilt tarballs to a draft release and publishes it afterwards, instead of publishing first and uploading after: immutable releases reject an upload to an already-published release, so the draft ordering keeps the upload clear of that edge. A following step then confirms every tarball is downloadable from the release before the job succeeds.
 
 ### Added
 
