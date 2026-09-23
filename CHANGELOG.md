@@ -6,9 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-09-23
+
 ### Fixed
 
-- **The release workflow published releases without their prebuilt binaries.** `gh release create <tag> <assets>` publishes the release and then uploads, and GitHub's immutable releases reject an upload to a published release — with a 422 that `gh` does not surface, so the step went green with nothing attached. `install.mjs` reads the prebuilts off the release, so every consumer of such a version is sent to a source build. The release is now created as a draft with the tarballs attached and published afterwards, and a following step fails the job unless every artifact made it onto the release.
+- **The release workflow published releases without their prebuilt binaries.** `gh release create <tag> <assets>` publishes the release and then uploads, and GitHub's immutable releases reject an upload to a published release — with a 422 that `gh` does not surface, so the step went green with nothing attached. `install.mjs` reads the prebuilts off the release, so every consumer of such a version is sent to a source build. The release is now created as a draft with the tarballs attached and published afterwards, and a following step fails the job unless every artifact made it onto the release. **0.8.0 is affected and should be skipped** — it installs only where a C++ toolchain is present. It is deprecated on npm in favour of this release.
 
 ### Added
 
