@@ -68,3 +68,10 @@ jobs:
           VCPKG_ROOT: ${{ runner.os == 'Windows' && 'C:\vcpkg' || '' }}
 
       - run: npm test
+
+      # veraPDF runs in its own container, pinned by digest, and is never linked
+      # into the package — it is GPL-3.0 / MPL-2.0. One platform is enough: the
+      # verdict is a property of the output bytes, not of the host.
+      - name: Validate PDF/A baseline
+        if: runner.os == 'Linux' && matrix.node-version == 22
+        run: npm run verify:pdfa

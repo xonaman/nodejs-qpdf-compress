@@ -1,0 +1,23 @@
+{
+  "image": "verapdf/cli@sha256:d5ee329657cf9bc4b2400392dd54c7d0a0ce9980ff6fa2da5590eebeec007cdb",
+  "flavour": "3a",
+  "fixture": "pdfa3-invoice.pdf",
+  "variants": {
+    "original": {
+      "compliant": true,
+      "failedRules": []
+    },
+    "default": {
+      "compliant": false,
+      "failedRules": ["6.1.7.1-2", "6.2.4.3-2", "6.2.4.3-4", "6.6.2.1-1", "6.7.2.2-1", "6.7.3.3-1"]
+    },
+    "keep-attachments": {
+      "compliant": false,
+      "failedRules": ["6.1.7.1-2", "6.2.4.3-2", "6.2.4.3-4", "6.6.2.1-1", "6.7.2.2-1", "6.7.3.3-1"]
+    },
+    "keep-both": {
+      "compliant": false,
+      "failedRules": ["6.1.7.1-2", "6.2.4.3-2", "6.2.4.3-4", "6.7.3.3-1"]
+    }
+  }
+}

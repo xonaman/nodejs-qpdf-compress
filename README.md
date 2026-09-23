@@ -160,7 +160,7 @@ Compresses a PDF document. Automatically repairs damaged PDFs.
 | `options.stripAttachments` | `boolean`          | Remove embedded file attachments. Default: `true`                   |
 | `options.output`           | `string`           | Write to file path instead of returning a `Buffer`                  |
 
-> **Hybrid invoices (ZUGFeRD / Factur-X)**: the invoice XML rides along as an attachment, so the defaults remove it. Pass `stripAttachments: false` to keep the attachment and every path readers look it up through. The result is still not a conforming PDF/A-3 — output intents and structure information are dropped in every mode, and XMP metadata too unless `stripMetadata: false` — so a file that has to stay conformant should not be compressed at all.
+> **Hybrid invoices (ZUGFeRD / Factur-X)**: the invoice XML rides along as an attachment, so the defaults remove it. Pass `stripAttachments: false` to keep the attachment and every path readers look it up through. The result is still not a conforming PDF/A-3 — output intents and structure information are dropped in every mode, and XMP metadata too unless `stripMetadata: false` — so a file that has to stay conformant should not be compressed at all. That is measured, not assumed: `npm run verify:pdfa` validates the output against veraPDF over a real PDF/A-3a invoice, and `scripts/pdfa-baseline.json` records exactly which clauses fail.
 
 **Both modes:**
 

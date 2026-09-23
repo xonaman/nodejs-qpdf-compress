@@ -75,6 +75,16 @@ run the checksum tripwire:
 npm run verify:checksums
 ```
 
+## PDF/A conformance
+
+Compression output is measured against the reference validator, veraPDF, over a real PDF/A-3a hybrid invoice. Docker is required; the image is pinned by digest so a verdict cannot drift when it is rebuilt.
+
+```bash
+npm run verify:pdfa
+```
+
+`scripts/pdfa-baseline.json` records which clauses each variant fails today, and the run fails on any difference in either direction — a regression and an improvement both want the baseline updated deliberately, with `npm run verify:pdfa -- --update`.
+
 ## Formatting, linting, and type-checking
 
 Before opening a pull request, make sure the following pass:

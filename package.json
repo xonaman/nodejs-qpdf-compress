@@ -77,6 +77,7 @@
     "download:qpdf": "node scripts/download-qpdf.mjs",
     "download:harfbuzz": "node scripts/download-harfbuzz.mjs",
     "verify:checksums": "node scripts/verify-checksums.mjs",
+    "verify:pdfa": "tsc && node scripts/verify-pdfa.mjs",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",

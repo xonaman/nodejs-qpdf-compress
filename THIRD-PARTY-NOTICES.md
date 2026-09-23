@@ -42,3 +42,15 @@ Copyright Jean-loup Gailly and Mark Adler. Licensed under the zlib License.
 zlib provides DEFLATE compression and is statically linked into the Windows
 build (via vcpkg); on macOS and Linux the system zlib is used at build time.
 See <https://github.com/madler/zlib/blob/master/LICENSE>.
+
+## Development and test material
+
+Neither of the following is distributed in the npm package: the fixture lives under `test/`, which is excluded from the package `files` list, and veraPDF is invoked as an external tool in its own container rather than vendored or linked.
+
+### `test/fixtures/pdfa3-invoice.pdf`
+
+A real ZUGFeRD 2.1 (EN 16931) PDF/A-3a invoice, used by `npm run verify:pdfa` to measure the PDF/A conformance of compression output. Taken unmodified from the [ZUGFeRD/corpus](https://github.com/ZUGFeRD/corpus) project (Apache-2.0), path `ZUGFeRDv2/correct/symtrax/Beispiele/EN16931/zugferd_2p1_EN16931_AbweichenderZahlungsempf.pdf`, SHA-256 `a4b903d4e508a80d65276f030d0fbeab5081d62c2c2b19ffd2f13bcdae37c564`.
+
+### veraPDF
+
+Copyright the veraPDF Consortium. Licensed under the GNU General Public License v3 or the Mozilla Public License v2. The reference PDF/A validator, run by `npm run verify:pdfa` from the `verapdf/cli` container image, pinned by digest in `scripts/pdfa-baseline.json`. See <https://github.com/veraPDF/veraPDF-apps>.
