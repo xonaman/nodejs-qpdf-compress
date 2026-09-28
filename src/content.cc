@@ -90,8 +90,10 @@ void minifyContentStreams(QPDF &qpdf) {
     while (pos < raw.size()) {
       char ch = raw[pos];
 
-      // skip whitespace
-      if (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n') {
+      // skip whitespace — use the same predicate the token loops below use
+      // (std::isspace), so a form-feed or vertical-tab can never fall through
+      // to the token branch and stall the tokenizer.
+      if (std::isspace(static_cast<unsigned char>(ch))) {
         if (!minified.empty())
           needSpace = true;
         ++pos;
@@ -203,10 +205,6 @@ void minifyContentStreams(QPDF &qpdf) {
 
       // regular token (number, operator)
       {
-        if (needSpace) {
-          minified += ' ';
-          needSpace = false;
-        }
         size_t start = pos;
         while (pos < raw.size() &&
                !std::isspace(static_cast<unsigned char>(raw[pos])) &&
@@ -215,6 +213,19 @@ void minifyContentStreams(QPDF &qpdf) {
                raw[pos] != ')')
           ++pos;
 
+        // forward-progress guard: a byte that starts no token — a stray ')'
+        // or any whitespace the dispatcher above did not catch — leaves
+        // pos == start. Without this the outer loop spins forever, appending
+        // to `minified` without bound. Skip the byte so progress is guaranteed.
+        if (pos == start) {
+          ++pos;
+          continue;
+        }
+
+        if (needSpace) {
+          minified += ' ';
+          needSpace = false;
+        }
         std::string token(raw, start, pos - start);
 
         // trim numeric formatting

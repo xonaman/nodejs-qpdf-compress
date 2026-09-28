@@ -344,3 +344,51 @@ describe('error handling', () => {
     expect((err as QpdfError).code).toBeTruthy();
   });
 });
+
+// a valid PDF whose single content stream is exactly `body`. Used to feed the
+// tokenizer byte sequences that must not stall it.
+function pdfWithContentStream(body: string): Buffer {
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /Resources << >> >>',
+    `<< /Length ${Buffer.byteLength(body, 'latin1')} >>\nstream\n${body}\nendstream`,
+  ];
+  let pdf = '%PDF-1.4\n';
+  const offsets: number[] = [];
+  for (const [index, obj] of objects.entries()) {
+    offsets[index] = Buffer.byteLength(pdf, 'latin1');
+    pdf += `${index + 1} 0 obj\n${obj}\nendobj\n`;
+  }
+  const xrefPos = Buffer.byteLength(pdf, 'latin1');
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const offset of offsets) pdf += `${String(offset).padStart(10, '0')} 00000 n \n`;
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF\n`;
+  return Buffer.from(pdf, 'latin1');
+}
+
+// minifyContentStreams tokenizes each content stream by hand. A byte that the
+// whitespace dispatcher does not recognise but the token loops refuse to
+// consume (a form feed, a vertical tab, or a stray delimiter) must not leave
+// the cursor stuck: before the progress guard it spun forever, allocating a
+// space each turn until the process ran out of memory. Each case must return.
+describe('content-stream tokenizer progress', () => {
+  it('a form feed between two operators does not stall the tokenizer', async () => {
+    const out = await compress(pdfWithContentStream('q\fQ'), { stripMetadata: false });
+    const text = searchableText(out);
+    expect(text).toContain('q');
+    expect(text).toContain('Q');
+  }, 15000);
+
+  it('a vertical tab between two operators does not stall the tokenizer', async () => {
+    await expect(
+      compress(pdfWithContentStream('q\x0bQ'), { stripMetadata: false }),
+    ).resolves.toBeInstanceOf(Buffer);
+  }, 15000);
+
+  it('a stray unbalanced close-paren does not stall the tokenizer', async () => {
+    await expect(
+      compress(pdfWithContentStream('q )'), { stripMetadata: false }),
+    ).resolves.toBeInstanceOf(Buffer);
+  }, 15000);
+});
