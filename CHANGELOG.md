@@ -6,7 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-09-28
+
 ### Fixed
+
+- **The content-stream minifier could hang on a form feed or vertical tab.** `minifyContentStreams` skipped only four whitespace bytes (space, tab, CR, LF) in its dispatcher, while its token loops stopped on `std::isspace`, which also counts form feed (`0x0C`) and vertical tab (`0x0B`) — both legal PDF whitespace. A form feed between two operators (a valid content stream such as `q\fQ`) therefore reached the token branch, which consumed nothing, so the cursor never advanced and the loop appended a space forever until the process ran out of memory. It runs on a libuv worker thread, so a caller's `try`/`catch` cannot interrupt it — a single crafted document is a denial of service. The dispatcher now skips whatever `std::isspace` recognises, and the token branch guarantees forward progress on any byte no branch consumes (a stray unbalanced `)` stalled it the same way), so no input can wedge the loop.
 
 - **Correction to the 0.8.1 release notes.** 0.8.1 shipped with an entry claiming that 0.8.0 had been published without its prebuilt binaries and should be skipped. That was wrong. The REST `assets` array reads empty for releases flagged immutable, and an empty array was mistaken for missing files. Every 0.8.0 tarball is attached and downloadable, each one's SHA-256 matches the pin shipped inside the npm package, and `npm install qpdf-compress@0.8.0` installs the prebuilt binary without compiling anything. **0.8.0 is fine to use and is not deprecated.**
 
